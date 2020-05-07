@@ -15,6 +15,7 @@ from torch.nn.init import xavier_uniform_
 from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from torch.optim import *
+from torch_yogi import Yogi
 
 class MovieDataset(Dataset):
 	def __init__(self, args, users, movies, ratings):
@@ -68,7 +69,17 @@ def train(args, train_dataset, val_dataset, model):
 	train_dataloader = DataLoader(train_dataset, shuffle=True, num_workers=8, batch_size=args.batch_size)
 	val_dataloader = DataLoader(val_dataset, shuffle=False, num_workers=8, batch_size=args.batch_size)
 
-	optimizer = Adam(model.parameters(), lr=args.lr, amsgrad=True)
+	params = model.parameters()
+	if args.sparse:
+		params.remove(model.user_T)
+		params.remove(model.item_T)
+		params_opt = [{'params': params},
+			      {'params': [model.user_T, model.item_T], 'regularization': (args.lda, 0.0)}]
+	else:
+		params_opt = params
+
+	# optimizer = Adam(model.parameters(), lr=args.lr, amsgrad=True)
+	optimizer = Yogi(params_opt, lr=args.lr)
 	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100000, gamma=0.1)
 	# scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=args.num_epoch)
 
@@ -94,9 +105,9 @@ def train(args, train_dataset, val_dataset, model):
 			model.zero_grad()
 			curr_lr = scheduler.get_lr()[0]
 
-			if args.sparse:
-				model.user_T.data = F.relu(model.user_T.data - curr_lr*args.lda)
-				model.item_T.data = F.relu(model.item_T.data - curr_lr*args.lda)
+			#if args.sparse:
+			#	model.user_T.data = F.relu(model.user_T.data - curr_lr*args.lda)
+			#	model.item_T.data = F.relu(model.item_T.data - curr_lr*args.lda)
 
 			total_train_loss += train_loss.item()
 			curr_train_loss = total_train_loss/(iteration+1)
@@ -187,7 +198,7 @@ def main():
 	parser.add_argument("--lr", default=1e-2, type=float)
 	parser.add_argument("--latent_dim", default=16, type=int)
 	parser.add_argument("--num_anchors", default=500, type=int)
-	parser.add_argument("--lda", default=0.05, type=float)
+	parser.add_argument("--lda", default=1e-5, type=float)
 	parser.add_argument("--test", help='testing', action='store_true')
 
 	# for md embeddings
