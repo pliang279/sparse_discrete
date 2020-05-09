@@ -1,5 +1,7 @@
 # sparse_discrete
 
+download http://files.grouplens.org/datasets/movielens/ml-25m.zip and unzip into a folder ml-25m/
+
 ## train commands:
 
 python3 movielens.py --model_path MF --latent_dim 16
