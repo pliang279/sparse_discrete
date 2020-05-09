@@ -69,7 +69,7 @@ def train(args, train_dataset, val_dataset, model):
 	train_dataloader = DataLoader(train_dataset, shuffle=True, num_workers=8, batch_size=args.batch_size)
 	val_dataloader = DataLoader(val_dataset, shuffle=False, num_workers=8, batch_size=args.batch_size)
 
-	params = model.parameters()
+	params = list(model.parameters())
 	if args.sparse:
 		params.remove(model.user_T)
 		params.remove(model.item_T)
@@ -231,25 +231,38 @@ def main():
 	args.num_user_anchors = args.num_anchors
 	args.num_item_anchors = args.num_anchors
 
-	RATINGS_CSV_FILE = 'ml1m_ratings.csv'
-	MODEL_WEIGHTS_FILE = 'ml1m_weights.h5'
+	args.dataset = '25m'
+	if args.dataset == '1m':
+		RATINGS_CSV_FILE = 'ml1m_ratings.csv'
+		ratings = pd.read_csv(RATINGS_CSV_FILE,
+							  sep='\t', 
+							  encoding='latin-1', 
+							  usecols=['userid', 'movieid', 'user_emb_id', 'movie_emb_id', 'rating'])
+		user_id_header = 'userid'
+		movie_id_header = 'movieid'
+	elif args.dataset == '25m':
+		RATINGS_CSV_FILE = 'ml-25m/ratings.csv'
+		ratings = pd.read_csv(RATINGS_CSV_FILE,
+							  sep=',', 
+							  encoding='latin-1', 
+							  usecols=['userId', 'movieId', 'rating', 'timestamp'])
+		user_id_header = 'userId'
+		movie_id_header = 'movieId'
 	RNG_SEED = 1446557
 
-	ratings = pd.read_csv(RATINGS_CSV_FILE,
-						  sep='\t', 
-						  encoding='latin-1', 
-						  usecols=['userid', 'movieid', 'user_emb_id', 'movie_emb_id', 'rating'])
-	max_userid = ratings['userid'].drop_duplicates().max()
-	max_movieid = ratings['movieid'].drop_duplicates().max()
+	args.n_users = ratings[user_id_header].drop_duplicates().max()
+	args.m_items = ratings[movie_id_header].drop_duplicates().max()
 	print (len(ratings), 'ratings loaded.')
 
 	shuffled_ratings = ratings.sample(frac=1., random_state=RNG_SEED)
-	users = shuffled_ratings['user_emb_id'].values
+	users = shuffled_ratings[user_id_header].values - 1
 	print ('Users:', users, ', shape =', users.shape)
-	movies = shuffled_ratings['movie_emb_id'].values
+	movies = shuffled_ratings[movie_id_header].values - 1
 	print ('Movies:', movies, ', shape =', movies.shape)
 	ratings = shuffled_ratings['rating'].values
 	print ('Ratings:', ratings, ', shape =', ratings.shape)
+
+	# pdb.set_trace()
 
 	train_prop = 0.8
 	val_prop = 0.1
@@ -265,9 +278,6 @@ def main():
 	users_test = users[int(len(users)*(train_prop+val_prop)):]
 	movies_test = movies[int(len(users)*(train_prop+val_prop)):]
 	ratings_test = ratings[int(len(users)*(train_prop+val_prop)):]
-
-	args.n_users = max_userid
-	args.m_items = max_movieid
 
 	if args.md:
 		# users_train = [1,5,4,4,3,3,6,3,4,4,1]
@@ -305,11 +315,12 @@ def main():
 		train(args, train_dataset, val_dataset, model)
 	
 def init_md(args, data_train, data_val, data_test, total_indices):
-	freq_counter = Counter(data_train)
-	# add indices not in train data. indices start from 0
-	for other in range(total_indices):
-		if other not in data_train:
-			freq_counter[other] = 0
+	# add all indices (including not in train data), with freq = 1, indices start from 0
+	data_train_padded = np.concatenate([np.array(data_train), np.array(range(total_indices))], axis=0)
+	freq_counter = Counter(data_train_padded)
+	# for other in tqdm():
+	# 	if other not in data_train:
+	# 		freq_counter[other] = 0
 	freq_counter = freq_counter.most_common()
 	freqs = torch.tensor(np.array([f for (k, f) in freq_counter]))
 	freq_index = {}
@@ -325,7 +336,7 @@ def init_md(args, data_train, data_val, data_test, total_indices):
 	num, total = 0, 0
 	index_to_bucket = {}
 	bucket, bucket_id = 0, 0
-	for index, freq in enumerate(freqs):
+	for index, freq in tqdm(enumerate(freqs)):
 		total += freq
 		num += 1
 		index_to_bucket[index] = bucket, bucket_id
@@ -349,7 +360,7 @@ def init_md(args, data_train, data_val, data_test, total_indices):
 	ps = nums/tau
 	lda = args.base_dim*ps[0]**(args.temperature)
 	dims = lda*ps**(-args.temperature)
-	for i in range(len(dims)):
+	for i in tqdm(range(len(dims))):
 		if i == 0:
 			dims[i] = args.base_dim
 		if dims[i] < 1 or torch.isnan(dims[i]):
@@ -370,12 +381,4 @@ def init_md(args, data_train, data_val, data_test, total_indices):
 
 if __name__ == "__main__":
 	main()
-
-
-
-
-
-
-
-
-
+	
