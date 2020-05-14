@@ -2,6 +2,14 @@
 
 download http://files.grouplens.org/datasets/movielens/ml-25m.zip and unzip into a folder ml-25m/
 
+make sure you have ml-25m/ratings.csv
+
+download 
+
+make sure you have ml1m_ratings.csv
+
+============================================================================================================================
+
 ## run full grid search: see generate_grid() in movielens.py
 
 python3 movielens.py --model_path sparseMF --latent_dim 16 --user_anchors 50 --item_anchors 10 --lda2 0.0001 --dataset 1m
@@ -13,6 +21,12 @@ baseline: python3 movielens.py --model_path MF --latent_dim 16 --dataset 25m
 mixed dim: python3 movielens.py --model_path mdMF --base_dim 16 --temperature 0.4 --k 8 --dataset 25m
 
 ours: python3 movielens.py --model_path sparseMF --latent_dim 16 --user_anchors 50 --item_anchors 10 --lda2 0.0001 --dataset 25m
+
+## run dynamic number of anchors
+
+python3 movielens.py --model_path sparseMF --latent_dim 16 --lda1 0.01 --lda2 0.0001 --dataset 1m --dynamic
+
+============================================================================================================================
 
 ## train commands:
 
