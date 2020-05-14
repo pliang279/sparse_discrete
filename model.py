@@ -28,14 +28,14 @@ class DynamicMFModel(nn.Module):
 		self.args = args
 		self.num_users = args.n_users
 		self.num_items = args.m_items
-		self.num_user_anchors = args.user_anchors
-		self.num_item_anchors = args.item_anchors
+		self.user_anchors = args.user_anchors
+		self.item_anchors = args.item_anchors
 		self.latent_dim = args.latent_dim
 
 		self.max_user_anchors = 100
 		self.max_item_anchors = 100
 
-		scale = self.max_user_anchors / self.num_user_anchors
+		scale = self.max_user_anchors / self.user_anchors
 
 		self.all_user_T = torch.nn.Parameter(torch.tensor(init_weight(self.num_users, self.max_user_anchors, scale=scale)))
 		self.all_user_A = torch.nn.Parameter(torch.tensor(init_weight(self.max_user_anchors, self.latent_dim, scale=scale)))
@@ -43,33 +43,33 @@ class DynamicMFModel(nn.Module):
 		self.all_item_A = torch.nn.Parameter(torch.tensor(init_weight(self.max_item_anchors, self.latent_dim, scale=scale)))
 
 	def expand_user(self):
-		if self.num_user_anchors <= self.max_user_anchors - self.args.delta:
-			self.num_user_anchors += self.args.delta
+		if self.user_anchors <= self.max_user_anchors - self.args.delta:
+			self.user_anchors += self.args.delta
 
 	def expand_item(self):
-		if self.num_item_anchors <= self.max_item_anchors - self.args.delta:
-			self.num_item_anchors += self.args.delta
+		if self.item_anchors <= self.max_item_anchors - self.args.delta:
+			self.item_anchors += self.args.delta
 
 	def reduce_user(self):
-		if self.num_user_anchors >= self.args.delta:
-			self.num_user_anchors -= self.args.delta
+		if self.user_anchors >= self.args.delta:
+			self.user_anchors -= self.args.delta
 
 	def reduce_item(self):
-		if self.num_item_anchors >= self.args.delta:
-			self.num_item_anchors -= self.args.delta
+		if self.item_anchors >= self.args.delta:
+			self.item_anchors -= self.args.delta
 
 	def get_nnz(self):
-		self.user_T = self.all_user_T[:,:self.num_user_anchors]
-		self.item_T = self.all_item_T[:,:self.num_item_anchors]
+		self.user_T = self.all_user_T[:,:self.user_anchors]
+		self.item_T = self.all_item_T[:,:self.item_anchors]
 		nnz_user_T = np.count_nonzero(self.user_T.data.cpu().numpy())
 		nnz_item_T = np.count_nonzero(self.item_T.data.cpu().numpy())
 		return nnz_user_T, nnz_item_T
 	
 	def forward(self, user_indices, item_indices):
-		self.user_T = self.all_user_T[:,:self.num_user_anchors]
-		self.user_A = self.all_user_A[:self.num_user_anchors]
-		self.item_T = self.all_item_T[:,:self.num_item_anchors]
-		self.item_A = self.all_item_A[:self.num_item_anchors]
+		self.user_T = self.all_user_T[:,:self.user_anchors]
+		self.user_A = self.all_user_A[:self.user_anchors]
+		self.item_T = self.all_item_T[:,:self.item_anchors]
+		self.item_A = self.all_item_A[:self.item_anchors]
 		# print ('user T', self.user_T.min(), self.user_T.max())
 		# print ('user A', self.user_A.min(), self.user_A.max())
 		user_embedding = torch.matmul(self.user_T[user_indices], self.user_A)
@@ -85,15 +85,15 @@ class MFModel(nn.Module):
 		self.args = args
 		self.num_users = args.n_users
 		self.num_items = args.m_items
-		self.num_user_anchors = args.num_user_anchors
-		self.num_item_anchors = args.num_item_anchors
+		self.user_anchors = args.user_anchors
+		self.item_anchors = args.item_anchors
 		self.latent_dim = args.latent_dim
 
 		if args.sparse:
-			self.user_T = torch.nn.Parameter(torch.tensor(init_weight(self.num_users, self.num_user_anchors)))
-			self.item_T = torch.nn.Parameter(torch.tensor(init_weight(self.num_items, self.num_item_anchors)))
-			self.user_A = torch.nn.Parameter(torch.tensor(init_weight(self.num_user_anchors, self.latent_dim)))
-			self.item_A = torch.nn.Parameter(torch.tensor(init_weight(self.num_item_anchors, self.latent_dim)))
+			self.user_T = torch.nn.Parameter(torch.tensor(init_weight(self.num_users, self.user_anchors)))
+			self.item_T = torch.nn.Parameter(torch.tensor(init_weight(self.num_items, self.item_anchors)))
+			self.user_A = torch.nn.Parameter(torch.tensor(init_weight(self.user_anchors, self.latent_dim)))
+			self.item_A = torch.nn.Parameter(torch.tensor(init_weight(self.item_anchors, self.latent_dim)))
 		elif args.md:
 			self.embeddings_user, self.projs_user = self.create_md_emb(args.md_nums_user, args.md_dims_user)
 			self.embeddings_item, self.projs_item = self.create_md_emb(args.md_nums_item, args.md_dims_item)
@@ -147,15 +147,15 @@ class NCFModel(nn.Module):
 		self.args = args
 		self.num_users = args.n_users
 		self.num_items = args.m_items
-		self.num_user_anchors = args.num_user_anchors
-		self.num_item_anchors = args.num_item_anchors
+		self.user_anchors = args.user_anchors
+		self.item_anchors = args.item_anchors
 		self.latent_dim = args.latent_dim
 
 		if args.sparse:
-			self.user_T = torch.nn.Parameter(torch.tensor(init_weight(self.num_users, self.num_user_anchors)))
-			self.item_T = torch.nn.Parameter(torch.tensor(init_weight(self.num_items, self.num_item_anchors)))
-			self.user_A = torch.nn.Parameter(torch.tensor(init_weight(self.num_user_anchors, self.latent_dim)))
-			self.item_A = torch.nn.Parameter(torch.tensor(init_weight(self.num_item_anchors, self.latent_dim)))
+			self.user_T = torch.nn.Parameter(torch.tensor(init_weight(self.num_users, self.user_anchors)))
+			self.item_T = torch.nn.Parameter(torch.tensor(init_weight(self.num_items, self.item_anchors)))
+			self.user_A = torch.nn.Parameter(torch.tensor(init_weight(self.user_anchors, self.latent_dim)))
+			self.item_A = torch.nn.Parameter(torch.tensor(init_weight(self.item_anchors, self.latent_dim)))
 		elif args.md:
 			base_dim = self.latent_dim
 			self.embedding_user = PrEmbeddingBag(self.num_users, self.latent_dim, base_dim)
