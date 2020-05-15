@@ -51,6 +51,15 @@ flags.DEFINE_float('temperature', 0.6, '')
 flags.DEFINE_integer('k', 8, '')
 flags.DEFINE_bool('round_dims', True, '')
 
+flags.DEFINE_integer('md_nums_user', 0, '')
+flags.DEFINE_integer('md_dims_user', 0, '')
+flags.DEFINE_integer('total_user_dim', 0, '')
+flags.DEFINE_integer('md_nums_item', 0, '')
+flags.DEFINE_integer('md_dims_item', 0, '')
+flags.DEFINE_integer('total_item_dim', 0, '')
+flags.DEFINE_integer('num_buckets_user', 0, '')
+flags.DEFINE_integer('num_buckets_item', 0, '')
+
 
 def init_md(data_train, data_val, data_test, total_indices):
 	# add all indices (including not in train data), with freq = 1, indices start from 0
@@ -60,13 +69,13 @@ def init_md(data_train, data_val, data_test, total_indices):
 	# 	if other not in data_train:
 	# 		freq_counter[other] = 0
 	freq_counter = freq_counter.most_common()
-	freqs = torch.tensor(np.array([f for (k, f) in freq_counter]))
+	freqs = torch.tensor(np.array([freq for (key, freq) in freq_counter]))
 	freq_index = {}
-	for index, (k, f) in enumerate(freq_counter):
-		freq_index[k] = index
-	indices_train = torch.tensor(np.array([freq_index[k] for k in data_train]))
-	indices_val = torch.tensor(np.array([freq_index[k] for k in data_val]))
-	indices_test = torch.tensor(np.array([freq_index[k] for k in data_test]))
+	for index, (key, freq) in enumerate(freq_counter):
+		freq_index[key] = index
+	indices_train = torch.tensor(np.array([freq_index[key] for key in data_train]))
+	indices_val = torch.tensor(np.array([freq_index[key] for key in data_val]))
+	indices_test = torch.tensor(np.array([freq_index[key] for key in data_test]))
 
 	tau = total_indices
 	each_block = sum(freqs) / FLAGS.k
@@ -82,7 +91,7 @@ def init_md(data_train, data_val, data_test, total_indices):
 			nums.append(num)
 			totals.append(total)
 			total, num = 0, 0
-			if bucket < k-1:
+			if bucket < FLAGS.k-1:
 				bucket += 1
 				bucket_id = 0
 			else:
@@ -106,8 +115,6 @@ def init_md(data_train, data_val, data_test, total_indices):
 	if FLAGS.round_dims:
 		dims = 2 ** torch.round(torch.log2(dims.type(torch.float)))
 	
-	FLAGS.md_nums = nums
-	FLAGS.md_dims = dims
 	total_emb_dims = sum([a*d for (a,d) in zip(nums, dims)]).item()
 	total_proj_dims = 0
 	for dim in dims:
@@ -116,9 +123,9 @@ def init_md(data_train, data_val, data_test, total_indices):
 	total_dim = total_emb_dims + total_proj_dims
 
 	dims = [int(d) for d in dims.tolist()]
-	indices_train = [index_to_bucket[k] for k in indices_train.data.numpy()]
-	indices_val = [index_to_bucket[k] for k in indices_val.data.numpy()]
-	indices_test = [index_to_bucket[k] for k in indices_test.data.numpy()]
+	indices_train = [index_to_bucket[key] for key in indices_train.data.numpy()]
+	indices_val = [index_to_bucket[key] for key in indices_val.data.numpy()]
+	indices_test = [index_to_bucket[key] for key in indices_test.data.numpy()]
 	return nums, dims, total_dim, indices_train, indices_val, indices_test
 
 
@@ -560,3 +567,4 @@ def generate_grid():
 
 if __name__ == "__main__":
 	app.run(main)
+
