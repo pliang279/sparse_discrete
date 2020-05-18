@@ -29,6 +29,10 @@ flags.DEFINE_integer('latent_dim', 16, '')
 flags.DEFINE_bool('test', False, '')
 flags.DEFINE_string('device', 'cuda', '')
 
+# scheduler
+flags.DEFINE_integer('step_size', 100000, '')
+flags.DEFINE_float('gamma', 0.5, '')
+
 flags.DEFINE_string('dataset', '1m', '')
 
 flags.DEFINE_bool('dynamic', False, '')
@@ -44,11 +48,12 @@ flags.DEFINE_float('lda1', 1e-2, '')
 flags.DEFINE_float('lda2', 1e-4, '')
 flags.DEFINE_integer('lda2_factor', 10, '')
 
+# for dynamic sparse embeddings
 flags.DEFINE_integer('init_anchors', 10, '')
 flags.DEFINE_integer('delta', 1, '')
 
 # for md embeddings
-flags.DEFINE_integer('base_dim', 16, '')
+flags.DEFINE_integer('base_dim', 32, '')
 flags.DEFINE_float('temperature', 0.6, '')
 flags.DEFINE_integer('k', 8, '')
 flags.DEFINE_bool('round_dims', True, '')
@@ -227,7 +232,7 @@ def dynamic_train(train_dataset, val_dataset, model):
 			 	  {'params': sparse_params, 'regularization': (FLAGS.lda2, 0.0)}]
 
 	optimizer = Yogi(params_opt, lr=FLAGS.lr)
-	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100000, gamma=0.1)
+	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=FLAGS.step_size, gamma=FLAGS.gamma)
 	model.zero_grad()
 
 	total_losses = []
@@ -304,7 +309,7 @@ def train(train_dataset, val_dataset, model):
 	# optimizer = Adam(model.parameters(), lr=FLAGS.lr, amsgrad=True)
 	optimizer = Yogi(params_opt, lr=FLAGS.lr)
 	# optimizer = SGD(params_opt, lr=FLAGS.lr)
-	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100000, gamma=0.5)	# 100000, s2: 200000, s3: 500000, s3: 500000,0.1
+	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=FLAGS.step_size, gamma=FLAGS.gamma)	# 100000, s2: 200000, s3: 500000, s3: 500000,0.1
 	# scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=FLAGS.num_epoch)
 	if FLAGS.sparse:
 		initial_lda2 = FLAGS.lda2
