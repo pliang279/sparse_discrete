@@ -63,7 +63,7 @@ class Yogi(Optimizer):
 		# self.num_dims = sum([sum([p.data.numel() for p in group['params']])
 		# for group in self.param_groups])
 
-	def step(self, closure=None):
+	def step(self, closure=None, l1_penalty=None, l2_penalty=None):
 		"""Performs a single optimization step.
 
 		Args:
@@ -102,7 +102,10 @@ class Yogi(Optimizer):
 
 				exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
 				beta1, beta2 = group['betas']
-				l1_penalty, l2_penalty = group['regularization']
+				if not l1_penalty:
+					l1_penalty = group['regularization'][0]
+				if not l2_penalty:
+					l2_penalty = group['regularization'][1]
 
 				state['step'] += 1
 
