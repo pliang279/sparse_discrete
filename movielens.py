@@ -472,11 +472,13 @@ def main(argv):
 	FLAGS.md = 'md' in FLAGS.model_path
 
 	if FLAGS.dynamic:
-		FLAGS.model_path += '_lda1_%s_lda2_%s_d%d_i%d_dynamic' %(str(FLAGS.lda1), str(FLAGS.lda2), FLAGS.delta, FLAGS.init_anchors)
+		FLAGS.model_path += '_lda1_%s_lda2_%s_d%d_i%d_s%d_g%s_dynamic' %(str(FLAGS.lda1), str(FLAGS.lda2), FLAGS.delta, FLAGS.init_anchors, FLAGS.step_size, str(FLAGS.gamma))
 	elif FLAGS.sparse:
-		FLAGS.model_path += '_ua%d_ia%d_lda2_%s_f%d' %(FLAGS.user_anchors, FLAGS.item_anchors, str(FLAGS.lda2), FLAGS.lda2_factor)
+		FLAGS.model_path += '_ua%d_ia%d_lda2_%s_f%d_s%d_g%s' %(FLAGS.user_anchors, FLAGS.item_anchors, str(FLAGS.lda2), FLAGS.lda2_factor, FLAGS.step_size, str(FLAGS.gamma))
 	elif FLAGS.md:
-		FLAGS.model_path += '_base%d_temp%0.1f_k%d' %(FLAGS.base_dim, FLAGS.temperature, FLAGS.k)
+		FLAGS.model_path += '_base%d_temp%0.1f_k%d_s%d_g%s' %(FLAGS.base_dim, FLAGS.temperature, FLAGS.k, FLAGS.step_size, str(FLAGS.gamma))
+	else:
+		FLAGS.model_path += '_s%d_g%s' %(FLAGS.step_size, str(FLAGS.gamma))
 
 	FLAGS.model_path += '_dim%d_split0.9' %(FLAGS.latent_dim)
 	FLAGS.model_path += '/'
