@@ -17,13 +17,14 @@ from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampl
 from torch.utils.data.distributed import DistributedSampler
 from torch.optim import *
 from torch_yogi import Yogi
+from torch_sgd import SGD
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string('model_path', 'MF', 'model name')	# MF 	mdMF 	sparseMF 	NCF 	mdNCF 	sparseNCF
 flags.DEFINE_integer('num_epoch', 50, '')
-flags.DEFINE_integer('batch_size', 32, '')
+flags.DEFINE_integer('batch_size', 1024, '')
 flags.DEFINE_string('optimizer', 'adam', '')
-flags.DEFINE_float('lr', 1e-2, '')
+flags.DEFINE_float('lr', 0.1, '')
 flags.DEFINE_integer('latent_dim', 16, '')
 flags.DEFINE_bool('test', False, '')
 flags.DEFINE_string('device', 'cuda', '')
@@ -41,6 +42,7 @@ flags.DEFINE_integer('user_anchors', 20, '')
 flags.DEFINE_integer('item_anchors', 20, '')
 flags.DEFINE_float('lda1', 1e-2, '')
 flags.DEFINE_float('lda2', 1e-4, '')
+flags.DEFINE_integer('lda2_factor', 10, '')
 
 flags.DEFINE_integer('init_anchors', 10, '')
 flags.DEFINE_integer('delta', 1, '')
@@ -127,7 +129,6 @@ def init_md(data_train, data_val, data_test, total_indices):
 	indices_val = [index_to_bucket[key] for key in indices_val.data.numpy()]
 	indices_test = [index_to_bucket[key] for key in indices_test.data.numpy()]
 	return nums, dims, total_dim, indices_train, indices_val, indices_test
-
 
 class MovieDataset(Dataset):
 	def __init__(self, users, movies, ratings):
@@ -302,8 +303,16 @@ def train(train_dataset, val_dataset, model):
 
 	# optimizer = Adam(model.parameters(), lr=FLAGS.lr, amsgrad=True)
 	optimizer = Yogi(params_opt, lr=FLAGS.lr)
-	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100000, gamma=0.1)
+	# optimizer = SGD(params_opt, lr=FLAGS.lr)
+	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100000, gamma=0.5)	# 100000, s2: 200000, s3: 500000, s3: 500000,0.1
 	# scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=FLAGS.num_epoch)
+	if FLAGS.sparse:
+		initial_lda2 = FLAGS.lda2
+		final_lda2 = FLAGS.lda2*FLAGS.lda2_factor
+		step = (final_lda2-initial_lda2) / float(FLAGS.num_epoch)
+		lda2_schedule = [initial_lda2+i*step for i in range(FLAGS.num_epoch)]
+	else:
+		lda2_schedule = [0.0]*FLAGS.num_epoch
 
 	model.zero_grad()
 
@@ -311,6 +320,8 @@ def train(train_dataset, val_dataset, model):
 	for epoch in range(FLAGS.num_epoch):
 		model.train()
 		total_train_loss = 0
+		curr_lda2 = lda2_schedule[epoch]
+		print ('curr epoch %d, l1 penalty: %s' % (epoch, str(curr_lda2)))
 		for iteration, batch in enumerate(tqdm(train_dataloader)):
 			users, movies, ratings = batch
 			users = users.to(FLAGS.device)
@@ -321,7 +332,10 @@ def train(train_dataset, val_dataset, model):
 			train_loss = torch.mean((model_outputs-ratings)**2)
 
 			train_loss.backward()
-			optimizer.step()
+			if FLAGS.sparse:
+				optimizer.step(l1_penalty=curr_lda2)
+			else:
+				optimizer.step()
 			scheduler.step()
 			model.zero_grad()
 			curr_lr = scheduler.get_lr()[0]
@@ -339,9 +353,9 @@ def train(train_dataset, val_dataset, model):
 					print ('embedding_item dim: {}'.format(FLAGS.total_item_dim))
 					print ('total params:', FLAGS.total_user_dim + FLAGS.total_item_dim)
 
-				# print (torch.min(model_outputs), torch.min(ratings))
-				# print (torch.max(model_outputs), torch.max(ratings))
-				# print (torch.mean(model_outputs), torch.mean(ratings))
+				print (torch.min(model_outputs), torch.min(ratings))
+				print (torch.max(model_outputs), torch.max(ratings))
+				print (torch.mean(model_outputs), torch.mean(ratings))
 
 		curr_val_loss = calculate_val_loss(model, val_dataloader)
 		curr_train_loss = total_train_loss/iteration
@@ -441,7 +455,7 @@ def test(test_dataset, model):
 def main(argv):
 	cuda = torch.cuda.is_available()
 	FLAGS.device = torch.device("cuda" if cuda else "cpu")
-	
+
 	if FLAGS.dynamic:
 		FLAGS.model_path = 'saved_models_dynamic1m/' + FLAGS.model_path
 	elif FLAGS.dataset == '1m':
@@ -453,13 +467,13 @@ def main(argv):
 	FLAGS.md = 'md' in FLAGS.model_path
 
 	if FLAGS.dynamic:
-		FLAGS.model_path += '_lda1_%0.6f_lda2_%0.6f_d%d_i%d_dynamic' %(FLAGS.lda1, FLAGS.lda2, FLAGS.delta, FLAGS.init_anchors)
+		FLAGS.model_path += '_lda1_%s_lda2_%s_d%d_i%d_dynamic' %(str(FLAGS.lda1), str(FLAGS.lda2), FLAGS.delta, FLAGS.init_anchors)
 	elif FLAGS.sparse:
-		FLAGS.model_path += '_ua%d_ia%d_lda2_%0.6f' %(FLAGS.user_anchors, FLAGS.item_anchors, FLAGS.lda2)
+		FLAGS.model_path += '_ua%d_ia%d_lda2_%s_f%d' %(FLAGS.user_anchors, FLAGS.item_anchors, str(FLAGS.lda2), FLAGS.lda2_factor)
 	elif FLAGS.md:
 		FLAGS.model_path += '_base%d_temp%0.1f_k%d' %(FLAGS.base_dim, FLAGS.temperature, FLAGS.k)
 
-	FLAGS.model_path += '_dim%d' %(FLAGS.latent_dim)
+	FLAGS.model_path += '_dim%d_split0.9' %(FLAGS.latent_dim)
 	FLAGS.model_path += '/'
 
 	print (FLAGS.model_path)
@@ -502,9 +516,9 @@ def main(argv):
 	print ('Ratings:', ratings, ', shape =', ratings.shape)
 
 	# pdb.set_trace()
-	train_prop = 0.8
+	train_prop = 0.9
 	val_prop = 0.1
-	test_prop = 0.1
+	test_prop = 0.0
 	users_train = users[:int(len(users)*train_prop)]
 	movies_train = movies[:int(len(users)*train_prop)]
 	ratings_train = ratings[:int(len(users)*train_prop)]
@@ -537,7 +551,7 @@ def main(argv):
 
 	train_dataset = MovieDataset(users_train, movies_train, ratings_train)
 	val_dataset = MovieDataset(users_val, movies_val, ratings_val)
-	test_dataset = MovieDataset(users_test, movies_test, ratings_test)
+	# test_dataset = MovieDataset(users_test, movies_test, ratings_test)
 
 	if FLAGS.dynamic:
 		model = DynamicMFModel(FLAGS)
@@ -549,7 +563,8 @@ def main(argv):
 	model.to(FLAGS.device)
 
 	if FLAGS.test:
-		test(test_dataset, model)
+		# test(test_dataset, model)
+		test(val_dataset, model)
 	elif FLAGS.dynamic:
 		dynamic_train(train_dataset, val_dataset, model)
 	else:
