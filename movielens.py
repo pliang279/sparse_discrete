@@ -30,17 +30,10 @@ flags.DEFINE_bool('test', False, '')
 flags.DEFINE_string('device', 'cuda', '')
 
 # scheduler
-flags.DEFINE_integer('step_size', 100000, '')
+flags.DEFINE_integer('step_size', 200000, '')
 flags.DEFINE_float('gamma', 0.5, '')
 
 flags.DEFINE_string('dataset', '1m', '')
-
-flags.DEFINE_bool('dynamic', False, '')
-flags.DEFINE_bool('sparse', False, '')
-flags.DEFINE_bool('md', False, '')
-
-flags.DEFINE_integer('n_users', 0, '')
-flags.DEFINE_integer('m_items', 0, '')
 
 flags.DEFINE_integer('user_anchors', 20, '')
 flags.DEFINE_integer('item_anchors', 20, '')
@@ -58,6 +51,12 @@ flags.DEFINE_float('temperature', 0.6, '')
 flags.DEFINE_integer('k', 8, '')
 flags.DEFINE_bool('round_dims', True, '')
 
+# these below are set automatically by the code
+flags.DEFINE_bool('dynamic', False, '')
+flags.DEFINE_bool('sparse', False, '')
+flags.DEFINE_bool('md', False, '')
+flags.DEFINE_integer('n_users', 0, '')
+flags.DEFINE_integer('m_items', 0, '')
 flags.DEFINE_integer('md_nums_user', 0, '')
 flags.DEFINE_integer('md_dims_user', 0, '')
 flags.DEFINE_integer('total_user_dim', 0, '')
@@ -309,7 +308,7 @@ def train(train_dataset, val_dataset, model):
 	# optimizer = Adam(model.parameters(), lr=FLAGS.lr, amsgrad=True)
 	optimizer = Yogi(params_opt, lr=FLAGS.lr)
 	# optimizer = SGD(params_opt, lr=FLAGS.lr)
-	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=FLAGS.step_size, gamma=FLAGS.gamma)	# 100000, s2: 200000, s3: 500000, s3: 500000,0.1
+	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=FLAGS.step_size, gamma=FLAGS.gamma)	# 100000, 0.5. s2: 200000, 0.5. s3: 500000, 0.5. s3: 500000,0.1
 	# scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=FLAGS.num_epoch)
 	if FLAGS.sparse:
 		initial_lda2 = FLAGS.lda2
@@ -508,8 +507,8 @@ def main(argv):
 							  usecols=['userId', 'movieId', 'rating', 'timestamp'])
 		user_id_header = 'userId'
 		movie_id_header = 'movieId'
-	RNG_SEED = 1446557
 
+	RNG_SEED = 1446557
 	FLAGS.n_users = ratings[user_id_header].drop_duplicates().max()
 	FLAGS.m_items = ratings[movie_id_header].drop_duplicates().max()
 	print (len(ratings), 'ratings loaded.')
