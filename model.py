@@ -98,8 +98,10 @@ class MFModel(nn.Module):
 			self.embeddings_user, self.projs_user = self.create_md_emb(args.md_nums_user, args.md_dims_user)
 			self.embeddings_item, self.projs_item = self.create_md_emb(args.md_nums_item, args.md_dims_item)
 		else:
-			self.embedding_user = torch.nn.Embedding(num_embeddings=self.num_users, embedding_dim=self.latent_dim)
-			self.embedding_item = torch.nn.Embedding(num_embeddings=self.num_items, embedding_dim=self.latent_dim)
+			# self.embedding_user = torch.nn.Embedding(num_embeddings=self.num_users, embedding_dim=self.latent_dim)
+			# self.embedding_item = torch.nn.Embedding(num_embeddings=self.num_items, embedding_dim=self.latent_dim)
+			self.embedding_user = torch.nn.Parameter(torch.tensor(init_weight(self.num_users, self.latent_dim)))
+			self.embedding_item = torch.nn.Parameter(torch.tensor(init_weight(self.num_items, self.latent_dim)))
 
 	def create_md_emb(self, nums, dims):
 		embeddings = nn.ParameterList([])
@@ -136,8 +138,8 @@ class MFModel(nn.Module):
 			user_embedding = self.apply_md_emb(user_indices, self.embeddings_user, self.projs_user)
 			item_embedding = self.apply_md_emb(item_indices, self.embeddings_item, self.projs_item)
 		else:
-			user_embedding = self.embedding_user(user_indices)
-			item_embedding = self.embedding_item(item_indices)
+			user_embedding = self.embedding_user[user_indices]	# self.embedding_user(user_indices)
+			item_embedding = self.embedding_item[item_indices] # self.embedding_item(item_indices)
 		rating = torch.einsum('ni,ni->n', user_embedding, item_embedding)
 		return rating
 
