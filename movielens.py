@@ -24,7 +24,7 @@ flags.DEFINE_string('model_path', 'MF', 'model name')	# MF 	mdMF 	sparseMF 	NCF 
 flags.DEFINE_integer('num_epoch', 50, '')
 flags.DEFINE_integer('batch_size', 1024, '')
 flags.DEFINE_string('optimizer', 'adam', '')
-flags.DEFINE_float('lr', 0.1, '')
+flags.DEFINE_float('lr', 0.01, '')
 flags.DEFINE_integer('latent_dim', 16, '')
 flags.DEFINE_bool('test', False, '')
 flags.DEFINE_string('device', 'cuda', '')
@@ -38,8 +38,9 @@ flags.DEFINE_string('dataset', '1m', '')
 flags.DEFINE_integer('user_anchors', 20, '')
 flags.DEFINE_integer('item_anchors', 20, '')
 flags.DEFINE_float('lda1', 1e-2, '')
-flags.DEFINE_float('lda2', 1e-4, '')
-flags.DEFINE_integer('lda2_factor', 10, '')
+flags.DEFINE_float('lda2s', 0.0, '')
+flags.DEFINE_integer('zerofor', 5, '')
+flags.DEFINE_float('lda2e', 1e-5, '')
 
 # for dynamic sparse embeddings
 flags.DEFINE_integer('init_anchors', 10, '')
@@ -301,20 +302,20 @@ def train(train_dataset, val_dataset, model):
 		params.remove(model.user_T)
 		params.remove(model.item_T)
 		params_opt = [{'params': params},
-					  {'params': [model.user_T, model.item_T], 'regularization': (FLAGS.lda2, 0.0)}]
+					  {'params': [model.user_T, model.item_T], 'regularization': (FLAGS.lda2s, 0.0)}]
 	else:
 		params_opt = params
 
 	# optimizer = Adam(model.parameters(), lr=FLAGS.lr, amsgrad=True)
 	optimizer = Yogi(params_opt, lr=FLAGS.lr)
 	# optimizer = SGD(params_opt, lr=FLAGS.lr)
-	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=FLAGS.step_size, gamma=FLAGS.gamma)	# 100000, 0.5. s2: 200000, 0.5. s3: 500000, 0.5. s3: 500000,0.1
+	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=FLAGS.step_size, gamma=FLAGS.gamma)	# 100000, 0.5. s2: 200000, 0.5. s3: 500000, 0.5.
 	# scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=FLAGS.num_epoch)
 	if FLAGS.sparse:
-		initial_lda2 = FLAGS.lda2
-		final_lda2 = FLAGS.lda2*FLAGS.lda2_factor
+		initial_lda2 = FLAGS.lda2s
+		final_lda2 = FLAGS.lda2e
 		step = (final_lda2-initial_lda2) / float(FLAGS.num_epoch)
-		lda2_schedule = [initial_lda2+i*step for i in range(FLAGS.num_epoch)]
+		lda2_schedule = [initial_lda2] * FLAGS.zerofor + [initial_lda2+i*step for i in range(FLAGS.num_epoch)]
 	else:
 		lda2_schedule = [0.0]*FLAGS.num_epoch
 
@@ -471,9 +472,9 @@ def main(argv):
 	FLAGS.md = 'md' in FLAGS.model_path
 
 	if FLAGS.dynamic:
-		FLAGS.model_path += '_lda1_%s_lda2_%s_d%d_i%d_s%d_g%s_dynamic' %(str(FLAGS.lda1), str(FLAGS.lda2), FLAGS.delta, FLAGS.init_anchors, FLAGS.step_size, str(FLAGS.gamma))
+		FLAGS.model_path += '_lda1%s_lda2%s_d%d_i%d_s%d_g%s_dynamic' %(str(FLAGS.lda1), str(FLAGS.lda2), FLAGS.delta, FLAGS.init_anchors, FLAGS.step_size, str(FLAGS.gamma))
 	elif FLAGS.sparse:
-		FLAGS.model_path += '_ua%d_ia%d_lda2_%s_f%d_s%d_g%s' %(FLAGS.user_anchors, FLAGS.item_anchors, str(FLAGS.lda2), FLAGS.lda2_factor, FLAGS.step_size, str(FLAGS.gamma))
+		FLAGS.model_path += '_ua%d_ia%d_lda2s%s_zerofor%s_lda2e%s_s%d_g%s' %(FLAGS.user_anchors, FLAGS.item_anchors, str(FLAGS.lda2s), str(FLAGS.zerofor), str(FLAGS.lda2e), FLAGS.step_size, str(FLAGS.gamma))
 	elif FLAGS.md:
 		FLAGS.model_path += '_base%d_temp%0.1f_k%d_s%d_g%s' %(FLAGS.base_dim, FLAGS.temperature, FLAGS.k, FLAGS.step_size, str(FLAGS.gamma))
 	else:
