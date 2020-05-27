@@ -43,6 +43,7 @@ flags.DEFINE_integer('zerofor', 5, '')
 flags.DEFINE_float('lda2e', 1e-5, '')
 
 # for dynamic sparse embeddings
+flags.DEFINE_bool('dynamic', False, '')
 flags.DEFINE_integer('init_anchors', 10, '')
 flags.DEFINE_integer('delta', 1, '')
 
@@ -53,7 +54,6 @@ flags.DEFINE_integer('k', 8, '')
 flags.DEFINE_bool('round_dims', True, '')
 
 # these below are set automatically by the code
-flags.DEFINE_bool('dynamic', False, '')
 flags.DEFINE_bool('sparse', False, '')
 flags.DEFINE_bool('md', False, '')
 flags.DEFINE_integer('n_users', 0, '')
@@ -181,10 +181,10 @@ def print_nnz(model):
 	print ('total nnz params:', nnz_user_T+nnz_item_T+model.user_anchors*FLAGS.latent_dim+model.item_anchors*FLAGS.latent_dim)
 	return
 
-def compute_equation(train_loss, model):
+def compute_equation(train_loss, model, curr_lda2):
 	nnz_user_T, nnz_item_T = model.get_nnz()
-	nnz_total = FLAGS.lda2*(nnz_user_T+nnz_item_T)
-	anchors_total = (FLAGS.lda1-FLAGS.lda2)*(model.user_anchors+model.item_anchors)
+	nnz_total = curr_lda2*(nnz_user_T+nnz_item_T)
+	anchors_total = (FLAGS.lda1-curr_lda2)*(model.user_anchors+model.item_anchors)
 	print("Average loss {}".format(train_loss))
 	print("Nnz users: {}, items: {}, weighted: {}".format(nnz_user_T, nnz_item_T, nnz_total))
 	print("Num anchors users: {}, items: {}, weighted: {}".format(model.user_anchors, model.item_anchors, anchors_total))
@@ -229,10 +229,21 @@ def dynamic_train(train_dataset, val_dataset, model):
 			nonsparse_params.append(param)
 	
 	params_opt = [{'params': nonsparse_params},
-			 	  {'params': sparse_params, 'regularization': (FLAGS.lda2, 0.0)}]
+			 	  {'params': sparse_params, 'regularization': (FLAGS.lda2s, 0.0)}]
 
+	# optimizer = Adam(model.parameters(), lr=FLAGS.lr, amsgrad=True)
 	optimizer = Yogi(params_opt, lr=FLAGS.lr)
-	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=FLAGS.step_size, gamma=FLAGS.gamma)
+	# optimizer = SGD(params_opt, lr=FLAGS.lr)
+	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=FLAGS.step_size, gamma=FLAGS.gamma)	# 100000, 0.5. s2: 200000, 0.5. s3: 500000, 0.5.
+	# scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=FLAGS.num_epoch)
+	if FLAGS.sparse:
+		initial_lda2 = FLAGS.lda2s
+		final_lda2 = FLAGS.lda2e
+		step = (final_lda2-initial_lda2) / float(FLAGS.num_epoch)
+		lda2_schedule = [initial_lda2] * FLAGS.zerofor + [initial_lda2+i*step for i in range(FLAGS.num_epoch)]
+	else:
+		lda2_schedule = [0.0]*FLAGS.num_epoch
+
 	model.zero_grad()
 
 	total_losses = []
@@ -240,17 +251,23 @@ def dynamic_train(train_dataset, val_dataset, model):
 	for epoch in range(FLAGS.num_epoch):
 		model.train()
 		total_train_loss = 0
+		curr_lda2 = lda2_schedule[epoch]
+		print ('curr epoch %d, l1 penalty: %s' % (epoch, str(curr_lda2)))
 		for iteration, batch in enumerate(tqdm(train_dataloader)):
 			users, movies, ratings = batch
 			users = users.to(FLAGS.device)
 			movies = movies.to(FLAGS.device)
 			ratings = ratings.to(FLAGS.device)
-
+			
 			model_outputs = model.forward(users, movies)
-			# pdb.set_trace()
 			train_loss = torch.mean((model_outputs-ratings)**2)
+
 			train_loss.backward()
-			optimizer.step()
+			if FLAGS.sparse:
+				optimizer.step(l1_penalty=curr_lda2)
+			else:
+				optimizer.step()
+
 			scheduler.step()
 			model.zero_grad()
 			curr_lr = scheduler.get_lr()[0]
@@ -274,7 +291,7 @@ def dynamic_train(train_dataset, val_dataset, model):
 		print("Val loss {}".format(curr_val_loss))
 		print_nnz(model)
 
-		loss, nnz_total, anchors_total = compute_equation(curr_val_loss, model)
+		loss, nnz_total, anchors_total = compute_equation(curr_val_loss, model, curr_lda2)
 		total_loss = loss + nnz_total + anchors_total
 		total_losses.append(total_loss)
 
@@ -287,7 +304,8 @@ def dynamic_train(train_dataset, val_dataset, model):
 				'model': model.state_dict(),
 				'optimizer': optimizer.state_dict(),
 				'scheduler': scheduler.state_dict(),
-				'num_anchors': (model.user_anchors, model.item_anchors)
+				'num_anchors': (model.user_anchors, model.item_anchors),
+				'curr_lda2': curr_lda2,
 			}
 			torch.save(checkpoint, FLAGS.model_path + 'checkpoint' + str(epoch) + '.pt')
 
@@ -369,7 +387,7 @@ def train(train_dataset, val_dataset, model):
 		if FLAGS.sparse:
 			print_nnz(model)
 
-		if curr_val_loss < best_val_loss:
+		if True: #curr_val_loss < best_val_loss:
 			best_val_loss = curr_val_loss
 
 			checkpoint = {
@@ -419,11 +437,8 @@ def test(test_dataset, model):
 	model.eval()
 
 	if FLAGS.dynamic:
-		if 'num_anchors' in checkpoint:
-			(user_anchors, item_anchors) = checkpoint['num_anchors']
-		else:
-			str_lda2 = '0.00008' if FLAGS.lda2 == 0.00008 else str(FLAGS.lda2)
-			user_anchors, item_anchors = get_num_anchors('res_new1m/sparse_dynamic_%s_%s_d%d.txt'%(str(FLAGS.lda1), str_lda2, FLAGS.delta))
+		(user_anchors, item_anchors) = checkpoint['num_anchors']
+		curr_lda2 = checkpoint['curr_lda2']
 		model.user_anchors = user_anchors
 		model.item_anchors = item_anchors
 
@@ -453,7 +468,7 @@ def test(test_dataset, model):
 	print("Test loss {}".format(total_loss))
 
 	if FLAGS.dynamic:
-		compute_equation(total_loss, model)
+		compute_equation(total_loss, model, curr_lda2)
 
 	return total_loss
 
@@ -461,8 +476,10 @@ def main(argv):
 	cuda = torch.cuda.is_available()
 	FLAGS.device = torch.device("cuda" if cuda else "cpu")
 
-	if FLAGS.dynamic:
+	if FLAGS.dynamic and FLAGS.dataset == '1m':
 		FLAGS.model_path = 'saved_models_dynamic1m/' + FLAGS.model_path
+	elif FLAGS.dynamic and FLAGS.dataset == '25m':
+		FLAGS.model_path = 'saved_models_dynamic25m/' + FLAGS.model_path
 	elif FLAGS.dataset == '1m':
 		FLAGS.model_path = 'saved_models_full1m/' + FLAGS.model_path
 	elif FLAGS.dataset == '25m':
@@ -472,7 +489,7 @@ def main(argv):
 	FLAGS.md = 'md' in FLAGS.model_path
 
 	if FLAGS.dynamic:
-		FLAGS.model_path += '_lda1%s_lda2%s_d%d_i%d_s%d_g%s_dynamic' %(str(FLAGS.lda1), str(FLAGS.lda2), FLAGS.delta, FLAGS.init_anchors, FLAGS.step_size, str(FLAGS.gamma))
+		FLAGS.model_path += '_lda1%s_lda2s%s_zerofor%s_lda2e%s_d%d_i%d_s%d_g%s_dynamic' %(str(FLAGS.lda1), str(FLAGS.lda2s), str(FLAGS.zerofor), str(FLAGS.lda2e), FLAGS.delta, FLAGS.init_anchors, FLAGS.step_size, str(FLAGS.gamma))
 	elif FLAGS.sparse:
 		FLAGS.model_path += '_ua%d_ia%d_lda2s%s_zerofor%s_lda2e%s_s%d_g%s' %(FLAGS.user_anchors, FLAGS.item_anchors, str(FLAGS.lda2s), str(FLAGS.zerofor), str(FLAGS.lda2e), FLAGS.step_size, str(FLAGS.gamma))
 	elif FLAGS.md:
@@ -511,14 +528,24 @@ def main(argv):
 
 	RNG_SEED = 1446557
 	FLAGS.n_users = ratings[user_id_header].drop_duplicates().max()
-	FLAGS.m_items = ratings[movie_id_header].drop_duplicates().max()
 	print (len(ratings), 'ratings loaded.')
 
 	shuffled_ratings = ratings.sample(frac=1., random_state=RNG_SEED)
 	users = shuffled_ratings[user_id_header].values - 1
-	print ('Users:', users, ', shape =', users.shape)
-	movies = shuffled_ratings[movie_id_header].values - 1
-	print ('Movies:', movies, ', shape =', movies.shape)
+	print ('Users:', users, ', shape =', users.shape, 'num =', FLAGS.n_users)
+	movies_raw = shuffled_ratings[movie_id_header].values - 1
+	movies_map = dict()
+	movies = []
+	num_movies = 0
+	for movie in movies_raw:
+		if movie not in movies_map:
+			movies_map[movie] = num_movies
+			num_movies += 1
+		movies.append(movies_map[movie])
+	movies = np.array(movies)
+	FLAGS.m_items = num_movies
+	print ('Movies:', movies, ', shape =', movies.shape, 'num =', FLAGS.m_items)
+
 	ratings = shuffled_ratings['rating'].values
 	print ('Ratings:', ratings, ', shape =', ratings.shape)
 
