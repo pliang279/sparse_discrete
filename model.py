@@ -18,9 +18,17 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.optim import *
 from embeddings import *
 
-def init_weight(n, m, scale=1):
+def init_weight_old(n, m, scale=1):
 	limit = np.sqrt(6 / ((n+m)/scale))
 	return np.random.uniform(low=-limit, high=limit, size=(n, m)).astype(np.float32)
+
+def init_weight(n, m, scale=1):
+	limit = np.sqrt(2 / n)
+	return np.abs(limit*np.random.randn(n, m)).astype(np.float32)
+
+def init_weight_fun(n, m, scale=1):
+	limit = np.sqrt(2 / 200000)
+	return np.abs(limit*np.random.randn(n, m)).astype(np.float32)
 
 class DynamicMFModel(nn.Module):
 	def __init__(self, args):
