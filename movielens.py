@@ -2,12 +2,14 @@ import math
 import os
 import pdb
 import sys
+import h5py
+import pickle
 from collections import Counter
 from tqdm import tqdm, trange
 from absl import app
 from absl import flags
 import pandas as pd
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 from model import *
 import torch
 import torch.nn as nn
@@ -23,9 +25,10 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('model_path', 'MF', 'model name')	# MF 	mdMF 	sparseMF 	NCF 	mdNCF 	sparseNCF
 flags.DEFINE_integer('num_epoch', 50, '')
 flags.DEFINE_integer('batch_size', 1024, '')
-flags.DEFINE_string('optimizer', 'adam', '')
+flags.DEFINE_string('optimizer', 'yogi', '')
 flags.DEFINE_float('lr', 0.01, '')
 flags.DEFINE_integer('latent_dim', 16, '')
+flags.DEFINE_bool('load', False, '')
 flags.DEFINE_bool('test', False, '')
 flags.DEFINE_string('device', 'cuda', '')
 
@@ -45,7 +48,7 @@ flags.DEFINE_float('lda2e', 1e-5, '')
 # for dynamic sparse embeddings
 flags.DEFINE_bool('dynamic', False, '')
 flags.DEFINE_integer('init_anchors', 10, '')
-flags.DEFINE_integer('delta', 1, '')
+flags.DEFINE_integer('delta', 2, '')
 
 # for md embeddings
 flags.DEFINE_integer('base_dim', 32, '')
@@ -55,6 +58,9 @@ flags.DEFINE_bool('round_dims', True, '')
 
 # these below are set automatically by the code
 flags.DEFINE_bool('sparse', False, '')
+flags.DEFINE_bool('full_reg', False, '')
+flags.DEFINE_bool('prune', False, '')
+flags.DEFINE_float('prune_lda', 0.0, '')
 flags.DEFINE_bool('md', False, '')
 flags.DEFINE_integer('n_users', 0, '')
 flags.DEFINE_integer('m_items', 0, '')
@@ -174,22 +180,28 @@ def calculate_val_loss(model, val_dataloader):
 
 def print_nnz(model):
 	nnz_user_T, nnz_item_T = model.get_nnz()
-	print("size of user T: {} x {} = {}, nnz in user T: {}".format(FLAGS.n_users, model.user_anchors, FLAGS.n_users*model.user_anchors, nnz_user_T))
-	print("size of item T: {} x {} = {}, nnz in item T: {}".format(FLAGS.m_items, model.item_anchors, FLAGS.m_items*model.item_anchors, nnz_item_T))
-	print("size of user A: {} x {} = {}".format(model.user_anchors, FLAGS.latent_dim, model.user_anchors*FLAGS.latent_dim))
-	print("size of item A: {} x {} = {}".format(model.item_anchors, FLAGS.latent_dim, model.item_anchors*FLAGS.latent_dim))
-	print ('total nnz params:', nnz_user_T+nnz_item_T+model.user_anchors*FLAGS.latent_dim+model.item_anchors*FLAGS.latent_dim)
+	if FLAGS.sparse:
+		print("size of user T: {} x {} = {}, nnz in user T: {}".format(FLAGS.n_users, model.user_anchors, FLAGS.n_users*model.user_anchors, nnz_user_T))
+		print("size of item T: {} x {} = {}, nnz in item T: {}".format(FLAGS.m_items, model.item_anchors, FLAGS.m_items*model.item_anchors, nnz_item_T))
+		print("size of user A: {} x {} = {}".format(model.user_anchors, FLAGS.latent_dim, model.user_anchors*FLAGS.latent_dim))
+		print("size of item A: {} x {} = {}".format(model.item_anchors, FLAGS.latent_dim, model.item_anchors*FLAGS.latent_dim))
+		print ('total nnz params:', nnz_user_T+nnz_item_T+model.user_anchors*FLAGS.latent_dim+model.item_anchors*FLAGS.latent_dim)
+	elif FLAGS.full_reg:
+		print ('embedding_user size: {} x {} = {}'.format(FLAGS.n_users, FLAGS.latent_dim, FLAGS.n_users*FLAGS.latent_dim))
+		print ('embedding_item size: {} x {} = {}'.format(FLAGS.m_items, FLAGS.latent_dim, FLAGS.m_items*FLAGS.latent_dim))
+		print ('total nnz params:', nnz_user_T+nnz_item_T)
 	return
 
-def compute_equation(train_loss, model, curr_lda2):
+def compute_equation(loss, model, curr_lda2):
 	nnz_user_T, nnz_item_T = model.get_nnz()
 	nnz_total = curr_lda2*(nnz_user_T+nnz_item_T)
 	anchors_total = (FLAGS.lda1-curr_lda2)*(model.user_anchors+model.item_anchors)
-	print("Average loss {}".format(train_loss))
+	print("Average loss {}".format(loss))
 	print("Nnz users: {}, items: {}, weighted: {}".format(nnz_user_T, nnz_item_T, nnz_total))
 	print("Num anchors users: {}, items: {}, weighted: {}".format(model.user_anchors, model.item_anchors, anchors_total))
-	print("Overall loss: {}".format(train_loss+nnz_total+anchors_total))
-	return train_loss, nnz_total, anchors_total
+	print("Overall loss: {}".format(loss+nnz_total+anchors_total))
+	total_loss = loss + nnz_total + anchors_total
+	return total_loss
 
 def improving(total_losses):
 	if len(total_losses) < 3:
@@ -263,11 +275,7 @@ def dynamic_train(train_dataset, val_dataset, model):
 			train_loss = torch.mean((model_outputs-ratings)**2)
 
 			train_loss.backward()
-			if FLAGS.sparse:
-				optimizer.step(l1_penalty=curr_lda2)
-			else:
-				optimizer.step()
-
+			optimizer.step()
 			scheduler.step()
 			model.zero_grad()
 			curr_lr = scheduler.get_lr()[0]
@@ -291,8 +299,7 @@ def dynamic_train(train_dataset, val_dataset, model):
 		print("Val loss {}".format(curr_val_loss))
 		print_nnz(model)
 
-		loss, nnz_total, anchors_total = compute_equation(curr_val_loss, model, curr_lda2)
-		total_loss = loss + nnz_total + anchors_total
+		total_loss = compute_equation(curr_val_loss, model, curr_lda2)
 		total_losses.append(total_loss)
 
 		update_anchors(model, total_losses)
@@ -321,6 +328,11 @@ def train(train_dataset, val_dataset, model):
 		params.remove(model.item_T)
 		params_opt = [{'params': params},
 					  {'params': [model.user_T, model.item_T], 'regularization': (FLAGS.lda2s, 0.0)}]
+	elif FLAGS.full_reg:
+		params.remove(model.embedding_user)
+		params.remove(model.embedding_item)
+		params_opt = [{'params': params},
+					  {'params': [model.embedding_user, model.embedding_item], 'regularization': (FLAGS.lda2s, 0.0)}]
 	else:
 		params_opt = params
 
@@ -329,7 +341,7 @@ def train(train_dataset, val_dataset, model):
 	# optimizer = SGD(params_opt, lr=FLAGS.lr)
 	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=FLAGS.step_size, gamma=FLAGS.gamma)	# 100000, 0.5. s2: 200000, 0.5. s3: 500000, 0.5.
 	# scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=FLAGS.num_epoch)
-	if FLAGS.sparse:
+	if FLAGS.sparse or FLAGS.full_reg:
 		initial_lda2 = FLAGS.lda2s
 		final_lda2 = FLAGS.lda2e
 		step = (final_lda2-initial_lda2) / float(FLAGS.num_epoch)
@@ -355,10 +367,7 @@ def train(train_dataset, val_dataset, model):
 			train_loss = torch.mean((model_outputs-ratings)**2)
 
 			train_loss.backward()
-			if FLAGS.sparse:
-				optimizer.step(l1_penalty=curr_lda2)
-			else:
-				optimizer.step()
+			optimizer.step()
 			scheduler.step()
 			model.zero_grad()
 			curr_lr = scheduler.get_lr()[0]
@@ -369,7 +378,7 @@ def train(train_dataset, val_dataset, model):
 			if iteration % 1000 == 0:
 				print('curr lr:', curr_lr)
 				print("Training loss {}".format(curr_train_loss))
-				if FLAGS.sparse:
+				if FLAGS.sparse or FLAGS.full_reg:
 					print_nnz(model)
 				if FLAGS.md:
 					print ('embedding_user dim: {}'.format(FLAGS.total_user_dim))
@@ -384,8 +393,119 @@ def train(train_dataset, val_dataset, model):
 		curr_train_loss = total_train_loss/iteration
 		print("Training loss {}".format(curr_train_loss))
 		print("Val loss {}".format(curr_val_loss))
-		if FLAGS.sparse:
+		if FLAGS.sparse or FLAGS.full_reg:
 			print_nnz(model)
+		if FLAGS.md:
+			print ('embedding_user dim: {}'.format(FLAGS.total_user_dim))
+			print ('embedding_item dim: {}'.format(FLAGS.total_item_dim))
+			print ('total params:', FLAGS.total_user_dim + FLAGS.total_item_dim)
+
+		if True: #curr_val_loss < best_val_loss:
+			best_val_loss = curr_val_loss
+
+			checkpoint = {
+				'model': model.state_dict(),
+				'optimizer': optimizer.state_dict(),
+				'scheduler': scheduler.state_dict(),
+			}
+			torch.save(checkpoint, FLAGS.model_path + 'checkpoint' + str(epoch) + '.pt')
+
+		sys.stdout.flush()
+
+def clip(p, lda):
+	return (p.data.abs() > lda).type(p.data.dtype) * p.data
+
+def prune(model, curr_lda):
+	if FLAGS.sparse:
+		model.user_T.data = clip(model.user_T, curr_lda)
+		model.item_T.data = clip(model.item_T, curr_lda)
+	elif FLAGS.full_reg:
+		model.embedding_user.data = clip(model.embedding_user, curr_lda)
+		model.embedding_item.data = clip(model.embedding_item, curr_lda)
+	return
+
+def train_prune(train_dataset, val_dataset, model):
+	print ('normal l1 penalty then prune weights')
+	train_dataloader = DataLoader(train_dataset, shuffle=True, num_workers=8, batch_size=FLAGS.batch_size)
+	val_dataloader = DataLoader(val_dataset, shuffle=False, num_workers=8, batch_size=FLAGS.batch_size)
+
+	params_opt = list(model.parameters())
+
+	# optimizer = Adam(model.parameters(), lr=FLAGS.lr, amsgrad=True)
+	optimizer = Yogi(params_opt, lr=FLAGS.lr)
+	# optimizer = SGD(params_opt, lr=FLAGS.lr)
+	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=FLAGS.step_size, gamma=FLAGS.gamma)	# 100000, 0.5. s2: 200000, 0.5. s3: 500000, 0.5.
+	if FLAGS.sparse or FLAGS.full_reg:
+		initial_lda2 = FLAGS.lda2s
+		final_lda2 = FLAGS.lda2e
+		step = (final_lda2-initial_lda2) / float(FLAGS.num_epoch)
+		lda2_schedule = [initial_lda2] * FLAGS.zerofor + [initial_lda2+i*step for i in range(FLAGS.num_epoch)]
+	else:
+		lda2_schedule = [0.0]*FLAGS.num_epoch
+
+	model.zero_grad()
+
+	best_val_loss = math.inf
+	for epoch in range(FLAGS.num_epoch):
+		model.train()
+		total_train_loss = 0
+		curr_lda2 = lda2_schedule[epoch]
+		print ('curr epoch %d, l1 penalty: %s' % (epoch, str(curr_lda2)))
+		for iteration, batch in enumerate(tqdm(train_dataloader)):
+			users, movies, ratings = batch
+			users = users.to(FLAGS.device)
+			movies = movies.to(FLAGS.device)
+			ratings = ratings.to(FLAGS.device)
+			
+			model_outputs = model.forward(users, movies)
+			train_loss = torch.mean((model_outputs-ratings)**2)
+
+			if FLAGS.sparse:
+				l1_penalty = torch.norm(model.user_T, 1) + torch.norm(model.item_T, 1)
+			elif FLAGS.full_reg:
+				l1_penalty = torch.norm(model.embedding_user, 1) + torch.norm(model.embedding_item, 1)
+			else:
+				l1_penalty = 0.0
+			train_loss_wreg = train_loss + curr_lda2*l1_penalty
+
+			train_loss_wreg.backward()
+			optimizer.step()
+			scheduler.step()
+			model.zero_grad()
+			curr_lr = scheduler.get_lr()[0]
+
+			total_train_loss += train_loss.item()
+			curr_train_loss = total_train_loss/(iteration+1)
+
+			if iteration % 1000 == 0:
+				print('curr lr:', curr_lr)
+				print("Training loss {}".format(curr_train_loss))
+				if FLAGS.sparse or FLAGS.full_reg:
+					print_nnz(model)
+				if FLAGS.md:
+					print ('embedding_user dim: {}'.format(FLAGS.total_user_dim))
+					print ('embedding_item dim: {}'.format(FLAGS.total_item_dim))
+					print ('total params:', FLAGS.total_user_dim + FLAGS.total_item_dim)
+
+				print (torch.min(model_outputs), torch.min(ratings))
+				print (torch.max(model_outputs), torch.max(ratings))
+				print (torch.mean(model_outputs), torch.mean(ratings))
+
+		if epoch == FLAGS.num_epoch-1:
+			print ('PRUNING AT FINAL EPOCH')
+			# prune weights
+			prune(model, FLAGS.prune_lda)
+
+		curr_val_loss = calculate_val_loss(model, val_dataloader)
+		curr_train_loss = total_train_loss/iteration
+		print("Training loss {}".format(curr_train_loss))
+		print("Val loss {}".format(curr_val_loss))
+		if FLAGS.sparse or FLAGS.full_reg:
+			print_nnz(model)
+		if FLAGS.md:
+			print ('embedding_user dim: {}'.format(FLAGS.total_user_dim))
+			print ('embedding_item dim: {}'.format(FLAGS.total_item_dim))
+			print ('total params:', FLAGS.total_user_dim + FLAGS.total_item_dim)
 
 		if True: #curr_val_loss < best_val_loss:
 			best_val_loss = curr_val_loss
@@ -472,6 +592,73 @@ def test(test_dataset, model):
 
 	return total_loss
 
+def load_weights(model, movies_rev_map):
+	all_checkpoints = []
+	for file in os.listdir(FLAGS.model_path):
+		if file.endswith(".pt"):
+			all_checkpoints.append(os.path.join(FLAGS.model_path, file))
+
+	all_checkpoints = sorted(all_checkpoints, key=lambda path: int(path[path.index('point')+5:-3]))
+	checkpoint_path = all_checkpoints[-1]
+	print ('loading from:', checkpoint_path)
+	# pdb.set_trace()
+	checkpoint = torch.load(checkpoint_path)
+	model.load_state_dict(checkpoint['model'])
+	model.to(FLAGS.device)
+	model.eval()
+
+	MOVIES_CSV_FILE = 'ml-25m/movies.csv'
+	movies = pd.read_csv(MOVIES_CSV_FILE,
+						  sep=',', 
+						  encoding='latin-1', 
+						  usecols=['movieId', 'title', 'genres'])
+	movie_list = dict()
+	for (movie_id, movie_name, movie_genre) in zip(movies['movieId'].values, movies['title'].values, movies['genres'].values):
+		movie_list[movie_id] = (movie_name, movie_genre)
+
+	if FLAGS.dynamic:
+		(user_anchors, item_anchors) = checkpoint['num_anchors']
+		curr_lda2 = checkpoint['curr_lda2']
+		model.user_anchors = user_anchors
+		model.item_anchors = item_anchors
+		item_T = model.all_item_T[:,:item_anchors]
+		item_A = model.all_item_A[:item_anchors]
+
+	for item_index in range(item_anchors):
+		curr_frac = item_T[:,item_index] / torch.sum(item_T, axis=1)
+		curr_frac[curr_frac != curr_frac] = 0
+		sorted_fracs, indices = torch.sort(curr_frac, descending=True)
+		indices = indices.cpu().numpy()
+		nnz = (sorted_fracs!=0).sum()
+		print (indices, nnz)
+		top_indices = [movies_rev_map[idx] for idx in indices[:nnz]]
+		top_movies = [movie_list[idx+1] for idx in top_indices]	# code subtracted 1 from movie indices at the start! so plus 1 back
+		# print ('top_indices:', top_indices)
+		# print ('top_movies:', top_movies)
+
+		genres = [genre for (_,genre) in top_movies]
+		# pdb.set_trace()
+		purity = compute_purity(genres)
+		print ('purity:', purity)
+
+	pdb.set_trace()
+
+def compute_purity(genres):
+	total_num = len(genres)
+	all_genres = set()
+	for genre in genres:
+		for each in genre.split('|'):
+			all_genres.add(each)
+	nums = []
+	for genre in all_genres:
+		num = 0
+		for movie in genres:
+			if genre in movie:
+				num += 1
+		nums.append((float(num/total_num),genre))
+	nums = sorted(nums, key=lambda x: x[0])
+	return nums[-1]
+
 def main(argv):
 	cuda = torch.cuda.is_available()
 	FLAGS.device = torch.device("cuda" if cuda else "cpu")
@@ -479,13 +666,21 @@ def main(argv):
 	if FLAGS.dynamic and FLAGS.dataset == '1m':
 		FLAGS.model_path = 'saved_models_dynamic1m/' + FLAGS.model_path
 	elif FLAGS.dynamic and FLAGS.dataset == '25m':
-		FLAGS.model_path = 'saved_models_dynamic25m/' + FLAGS.model_path
+		FLAGS.model_path = 'saved_models_dynamic25m_final/' + FLAGS.model_path
+	elif FLAGS.dynamic and FLAGS.dataset == 'amazon':
+		FLAGS.model_path = 'saved_models_dynamic_amazon/' + FLAGS.model_path
 	elif FLAGS.dataset == '1m':
-		FLAGS.model_path = 'saved_models_full1m/' + FLAGS.model_path
+		FLAGS.model_path = 'saved_models_1m/' + FLAGS.model_path
 	elif FLAGS.dataset == '25m':
 		FLAGS.model_path = 'saved_models_25m/' + FLAGS.model_path
+	elif FLAGS.dataset == 'amazon':
+		FLAGS.model_path = 'saved_models_amazon/' + FLAGS.model_path
+	else:
+		print ('wrong flags')
+		assert False
 
 	FLAGS.sparse = 'sparse' in FLAGS.model_path
+	FLAGS.full_reg = 'full_reg' in FLAGS.model_path
 	FLAGS.md = 'md' in FLAGS.model_path
 
 	if FLAGS.dynamic:
@@ -498,6 +693,8 @@ def main(argv):
 		FLAGS.model_path += '_s%d_g%s' %(FLAGS.step_size, str(FLAGS.gamma))
 
 	FLAGS.model_path += '_dim%d_split0.9' %(FLAGS.latent_dim)
+	if FLAGS.prune:
+		FLAGS.model_path += '_prune%s' %(str(FLAGS.prune_lda))
 	FLAGS.model_path += '/'
 
 	print (FLAGS.model_path)
@@ -509,44 +706,62 @@ def main(argv):
 		else:
 			os.mkdir(FLAGS.model_path)
 
-	if FLAGS.dataset == '1m':
-		RATINGS_CSV_FILE = 'ml1m_ratings.csv'
-		ratings = pd.read_csv(RATINGS_CSV_FILE,
-							  sep='\t', 
-							  encoding='latin-1', 
-							  usecols=['userid', 'movieid', 'user_emb_id', 'movie_emb_id', 'rating'])
-		user_id_header = 'userid'
-		movie_id_header = 'movieid'
-	elif FLAGS.dataset == '25m':
-		RATINGS_CSV_FILE = 'ml-25m/ratings.csv'
-		ratings = pd.read_csv(RATINGS_CSV_FILE,
-							  sep=',', 
-							  encoding='latin-1', 
-							  usecols=['userId', 'movieId', 'rating', 'timestamp'])
-		user_id_header = 'userId'
-		movie_id_header = 'movieId'
+	if FLAGS.dataset == '1m' or FLAGS.dataset == '25m':
+		if FLAGS.dataset == '1m':
+			RATINGS_CSV_FILE = 'ml1m_ratings.csv'
+			ratings = pd.read_csv(RATINGS_CSV_FILE,
+								  sep='\t', 
+								  encoding='latin-1', 
+								  usecols=['userid', 'movieid', 'user_emb_id', 'movie_emb_id', 'rating'])
+			user_id_header = 'userid'
+			movie_id_header = 'movieid'
+		elif FLAGS.dataset == '25m':
+			RATINGS_CSV_FILE = 'ml-25m/ratings.csv'
+			ratings = pd.read_csv(RATINGS_CSV_FILE,
+								  sep=',', 
+								  encoding='latin-1', 
+								  usecols=['userId', 'movieId', 'rating', 'timestamp'])
+			user_id_header = 'userId'
+			movie_id_header = 'movieId'
 
-	RNG_SEED = 1446557
-	FLAGS.n_users = ratings[user_id_header].drop_duplicates().max()
-	print (len(ratings), 'ratings loaded.')
+		RNG_SEED = 1446557
+		FLAGS.n_users = ratings[user_id_header].drop_duplicates().max()
+		print (len(ratings), 'ratings loaded.')
 
-	shuffled_ratings = ratings.sample(frac=1., random_state=RNG_SEED)
-	users = shuffled_ratings[user_id_header].values - 1
-	print ('Users:', users, ', shape =', users.shape, 'num =', FLAGS.n_users)
-	movies_raw = shuffled_ratings[movie_id_header].values - 1
-	movies_map = dict()
-	movies = []
-	num_movies = 0
-	for movie in movies_raw:
-		if movie not in movies_map:
-			movies_map[movie] = num_movies
-			num_movies += 1
-		movies.append(movies_map[movie])
-	movies = np.array(movies)
-	FLAGS.m_items = num_movies
+		shuffled_ratings = ratings.sample(frac=1., random_state=RNG_SEED)
+		users = shuffled_ratings[user_id_header].values - 1
+		print ('Users:', users, ', shape =', users.shape, 'num =', FLAGS.n_users)
+		movies_raw = shuffled_ratings[movie_id_header].values - 1
+		movies_map = dict()
+		movies_rev_map = dict()
+		movies = []
+		num_movies = 0
+		for movie in movies_raw:
+			if movie not in movies_map:
+				movies_map[movie] = num_movies
+				movies_rev_map[num_movies] = movie
+				num_movies += 1
+			movies.append(movies_map[movie])
+		movies = np.array(movies)
+		FLAGS.m_items = num_movies
+		ratings = shuffled_ratings['rating'].values
+
+	elif FLAGS.dataset == 'amazon':
+		hf = h5py.File('saved_amazon_data.h5', 'r')
+		users = np.array(hf.get('users'))
+		movies = np.array(hf.get('items'))
+		ratings = np.array(hf.get('ratings'))
+		hf.close()
+
+		user_forward_map = pickle.load(open("user_forward_map.pkl", "rb"))
+		user_rev_map = pickle.load(open("user_rev_map.pkl", "rb"))
+		item_forward_map = pickle.load(open("item_forward_map.pkl", "rb"))
+		item_rev_map = pickle.load(open("item_rev_map.pkl", "rb"))
+
+		FLAGS.n_users = len(user_forward_map)
+		FLAGS.m_items = len(item_forward_map)
+
 	print ('Movies:', movies, ', shape =', movies.shape, 'num =', FLAGS.m_items)
-
-	ratings = shuffled_ratings['rating'].values
 	print ('Ratings:', ratings, ', shape =', ratings.shape)
 
 	# pdb.set_trace()
@@ -596,17 +811,23 @@ def main(argv):
 
 	model.to(FLAGS.device)
 
-	if FLAGS.test:
-		# test(test_dataset, model)
+	if FLAGS.load:
+		load_weights(model, movies_rev_map)
+	elif FLAGS.test:
 		test(val_dataset, model)
 	elif FLAGS.dynamic:
 		dynamic_train(train_dataset, val_dataset, model)
+	elif FLAGS.prune:
+		train_prune(train_dataset, val_dataset, model)
 	else:
 		train(train_dataset, val_dataset, model)
 	
 def generate_grid():
 	user_as = [1,2,3,5,8,10,15,20,30,50,80,100,120,150,200,300,500,800,1000,1500,2000,3000,4000,5000,6000]	# 6040
 	item_as = [1,2,3,5,8,10,15,20,30,50,80,100,120,150,200,300,500,800,1000,1500,2000,3000,3500]			# 3952
+
+	user_as = [1,2,3,5,8,10,15,20,30,50,80,100,120,150,200,300,500,800,1000,1500,2000,3000,4000,5000,6000]	# 126000
+	item_as = [1,2,3,5,8,10,15,20,30,50,80,100,120,150,200,300,500,800,1000,1500,2000,3000,3500]			# 59000
 
 	for user_a in user_as:
 		for item_a in item_as:
