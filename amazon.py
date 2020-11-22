@@ -622,6 +622,15 @@ def main(argv):
 		# item_forward_map = pickle.load(open("item_forward_map.pkl", "rb"))
 		# item_rev_map = pickle.load(open("item_rev_map.pkl", "rb"))
 		# print ('loaded maps')
+		
+		RNG_SEED = 1446557
+		np.random.seed(RNG_SEED)
+		rng_state = np.random.get_state()
+		np.random.shuffle(users)
+		np.random.set_state(rng_state)
+		np.random.shuffle(movies)
+		np.random.set_state(rng_state)
+		np.random.shuffle(ratings)
 
 		FLAGS.n_users = 15167257 # len(user_forward_map)
 		FLAGS.m_items = 43531850 # len(item_forward_map)
