@@ -96,6 +96,8 @@ class MFModel(nn.Module):
 		self.user_anchors = args.user_anchors
 		self.item_anchors = args.item_anchors
 		self.latent_dim = args.latent_dim
+		
+		self.bias = torch.nn.Parameter(torch.tensor(0.0))
 
 		if args.sparse:
 			self.user_T = torch.nn.Parameter(torch.tensor(init_weight(self.num_users, self.user_anchors)))
@@ -147,8 +149,8 @@ class MFModel(nn.Module):
 			item_embedding = self.apply_md_emb(item_indices, self.embeddings_item, self.projs_item)
 		else:
 			user_embedding = self.embedding_user[user_indices]	# self.embedding_user(user_indices)
-			item_embedding = self.embedding_item[item_indices] # self.embedding_item(item_indices)
-		rating = torch.einsum('ni,ni->n', user_embedding, item_embedding)
+			item_embedding = self.embedding_item[item_indices]      # self.embedding_item(item_indices)
+		rating = torch.einsum('ni,ni->n', user_embedding, item_embedding) + self.bias
 		return rating
 
 class NCFModel(nn.Module):
