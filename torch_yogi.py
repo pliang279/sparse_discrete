@@ -122,9 +122,10 @@ class Yogi(Optimizer):
 				# pdb.set_trace()
 				exp_avg.mul_(beta1).add_(1 - beta1, grad)
 
-				grad2 = grad * grad
+				grad2 = grad.mul_(grad)
 				sign = (exp_avg_sq - grad2).sign_()
 				exp_avg_sq.addcmul_(beta2 - 1, sign, grad2)
+				del grad2, sign, grad
 
 				denom = exp_avg_sq.sqrt().add_(group['eps'])
 
