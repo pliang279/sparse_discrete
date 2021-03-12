@@ -47,6 +47,8 @@ download http://files.grouplens.org/datasets/movielens/ml-25m.zip and unzip into
 
 download http://files.grouplens.org/datasets/movielens/ml-1m.zip and unzip into a folder ml-1m/
 
+download amazon data: TODO
+
 run python3 movielens_data.py, which extracts the .dat files in ml-1m/ and generates ml1m_ratings.csv
 
 by now, make sure you have ml-25m/ratings.csv and ml1m_ratings.csv
