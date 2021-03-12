@@ -9,7 +9,7 @@ Correspondence to:
 ## Paper
 
 [**Anchor & Transform: Learning Sparse Embeddings for Large Vocabularies**](https://arxiv.org/abs/2003.08197)<br>
-[Paul Pu Liang](http://www.cs.cmu.edu/~pliang/), Manzil Zaheer(http://www.manzil.ml/), Yuan Wang(https://ai.google/research/people/YuanWang), Amr Ahmed(https://ai.google/research/people/AmrAhmed)<br>
+[Paul Pu Liang](http://www.cs.cmu.edu/~pliang/), [Manzil Zaheer](http://www.manzil.ml/), [Yuan Wang](https://ai.google/research/people/YuanWang), [Amr Ahmed](https://ai.google/research/people/AmrAhmed)<br>
 ICLR 2021
 
 If you find this repository useful, please cite our paper:
@@ -32,16 +32,16 @@ If you find this repository useful, please cite our paper:
 First check that the requirements are satisfied:</br>
 Python 3.6</br>
 torch 1.2.0</br>
-huggingface transformers</br>
 numpy 1.18.1</br>
-sklearn 0.20.0</br>
 matplotlib 3.1.2</br>
-gensim 3.8.0 </br>
 tqdm 4.45.0</br>
-regex 2.5.77</br>
-pattern3</br>
 
-## Instructions
+The next step is to clone the repository:
+```bash
+git clone https://github.com/pliang279/sparse_discrete.git
+```
+
+## Data
 
 download http://files.grouplens.org/datasets/movielens/ml-25m.zip and unzip into a folder ml-25m/
 
@@ -51,13 +51,13 @@ run python3 movielens_data.py, which extracts the .dat files in ml-1m/ and gener
 
 by now, make sure you have ml-25m/ratings.csv and ml1m_ratings.csv
 
-============================================================================================================================
+## Instructions
 
-## run full grid search: see generate_grid() in movielens.py
+### run full grid search: see generate_grid() in movielens.py
 
 python3 movielens.py --model_path sparseMF --latent_dim 16 --user_anchors 50 --item_anchors 10 --lda2 0.0001 --dataset 1m
 
-## run 25 million
+### run 25 million
 
 baseline: python3 movielens.py --model_path MF --latent_dim 16 --dataset 25m
 
@@ -65,13 +65,13 @@ mixed dim: python3 movielens.py --model_path mdMF --base_dim 16 --temperature 0.
 
 ours: python3 movielens.py --model_path sparseMF --latent_dim 16 --user_anchors 50 --item_anchors 10 --lda2 0.0001 --dataset 25m
 
-## run dynamic number of anchors
+### run dynamic number of anchors
 
 python3 movielens.py --model_path sparseMF --latent_dim 16 --lda1 0.01 --lda2 0.0001 --dataset 1m --dynamic
 
 ============================================================================================================================
 
-## train commands:
+### train commands:
 
 python3 movielens.py --model_path MF --latent_dim 16
 
@@ -89,10 +89,12 @@ python3 movielens.py --model_path sparseNCF --latent_dim 32 --num_anchors 50 --l
 
 python3 movielens.py --model_path sparseNCF --latent_dim 32 --num_anchors 100 --lda 0.01
 
-## test commands:
+### test commands:
 
 python3 movielens.py --model_path MF --latent_dim 16 --test
 
 python3 movielens.py --model_path sparseMF --num_anchors 50 --lda 0.01 --test
 
 python3 movielens.py --model_path mdMF --base_dim 16 --temperature 0.6 --k 8 --test
+
+### run on amazon reviews
