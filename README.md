@@ -9,7 +9,7 @@ Correspondence to:
 ## Paper
 
 [**Anchor & Transform: Learning Sparse Embeddings for Large Vocabularies**](https://arxiv.org/abs/2003.08197)<br>
-[Paul Pu Liang](http://www.cs.cmu.edu/~pliang/), Manzil Zaheer, Yuan Wang, Amr Ahmed<br>
+[Paul Pu Liang](http://www.cs.cmu.edu/~pliang/), Manzil Zaheer(http://www.manzil.ml/), Yuan Wang(https://ai.google/research/people/YuanWang), Amr Ahmed(https://ai.google/research/people/AmrAhmed)<br>
 ICLR 2021
 
 If you find this repository useful, please cite our paper:
