@@ -1,6 +1,6 @@
 # Anchor & Transform: Learning Sparse Embeddings for Large Vocabularies
 
-
+> Pytorch implementation for Anchor & Transform: Learning Sparse Embeddings for Large Vocabularies
 
 download http://files.grouplens.org/datasets/movielens/ml-25m.zip and unzip into a folder ml-25m/
 
