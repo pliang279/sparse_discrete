@@ -20,7 +20,7 @@ If you find this repository useful, please cite our paper:
                Yuan Wang and
                Amr Ahmed},
   title     = {Anchor & Transform: Learning Sparse Embeddings for Large Vocabularies},
-  booktitle = {9ths th International Conference on Learning Representations, {ICLR} 2021},
+  booktitle = {9th International Conference on Learning Representations, {ICLR} 2021},
   publisher = {OpenReview.net},
   year      = {2021},
   url       = {https://openreview.net/forum?id=Vd7lCMvtLqg}
