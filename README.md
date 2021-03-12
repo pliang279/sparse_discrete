@@ -8,28 +8,22 @@ Correspondence to:
 
 ## Paper
 
-[**Anchor & Transform: Learning Sparse Embeddings for Large Vocabulariess**](https://arxiv.org/abs/2003.08197)<br>
+[**Anchor & Transform: Learning Sparse Embeddings for Large Vocabularies**](https://arxiv.org/abs/2003.08197)<br>
 [Paul Pu Liang](http://www.cs.cmu.edu/~pliang/), Manzil Zaheer, Yuan Wang, Amr Ahmed<br>
 ICLR 2021
 
 If you find this repository useful, please cite our paper:
 ```
 @inproceedings{liang2021anchor,
-    title = "Towards Debiasing Sentence Representations",
-    author = "Liang, Paul Pu  and
-      Li, Irene Mengze  and
-      Zheng, Emily  and
-      Lim, Yao Chong  and
-      Salakhutdinov, Ruslan  and
-      Morency, Louis-Philippe",
-    booktitle = "Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics",
-    month = jul,
-    year = "2020",
-    address = "Online",
-    publisher = "Association for Computational Linguistics",
-    url = "https://www.aclweb.org/anthology/2020.acl-main.488",
-    doi = "10.18653/v1/2020.acl-main.488",
-    pages = "5502--5515",
+  author    = {Paul Pu Liang and
+               Manzil Zaheer and
+               Yuan Wang and
+               Amr Ahmed},
+  title     = {Anchor & Transform: Learning Sparse Embeddings for Large Vocabularies},
+  booktitle = {9ths th International Conference on Learning Representations, {ICLR} 2021},
+  publisher = {OpenReview.net},
+  year      = {2021},
+  url       = {https://openreview.net/forum?id=Vd7lCMvtLqg}
 }
 ```
 
