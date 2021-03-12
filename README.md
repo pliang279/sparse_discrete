@@ -4,7 +4,7 @@
 
 Correspondence to: 
   - Paul Liang (pliang@cs.cmu.edu)
-  - Irene Li (mengzeli@cs.cmu.edu)
+  - Manzil Zaheer (manzilzaheer@google.com)
 
 ## Paper
 
