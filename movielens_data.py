@@ -12,9 +12,9 @@ OCCUPATIONS = { 0: "other or not specified", 1: "academic/educator", 2: "artist"
                 7: "executive/managerial", 8: "farmer", 9: "homemaker", 10: "K-12 student", 11: "lawyer",
                 12: "programmer", 13: "retired", 14: "sales/marketing", 15: "scientist", 16: "self-employed",
                 17: "technician/engineer", 18: "tradesman/craftsman", 19: "unemployed", 20: "writer" }
-RATINGS_CSV_FILE = 'ml1m_ratings.csv'
-USERS_CSV_FILE = 'ml1m_users.csv'
-MOVIES_CSV_FILE = 'ml1m_movies.csv'
+RATINGS_CSV_FILE = 'ml-1m/ml1m_ratings.csv'
+USERS_CSV_FILE = 'ml-1m/ml1m_users.csv'
+MOVIES_CSV_FILE = 'ml-1m/ml1m_movies.csv'
 
 ratings = pd.read_csv(os.path.join(MOVIELENS_DIR, RATING_DATA_FILE), 
                     sep='::', 
