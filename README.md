@@ -45,9 +45,9 @@ git clone https://github.com/pliang279/sparse_discrete.git
 
 ### Movielens data
 
-download http://files.grouplens.org/datasets/movielens/ml-25m.zip and unzip into a folder ml-25m/
+download Movielens 25m data from http://files.grouplens.org/datasets/movielens/ml-25m.zip and unzip into a folder ml-25m/
 
-download http://files.grouplens.org/datasets/movielens/ml-1m.zip and unzip into a folder ml-1m/
+download Movielens 1m data from http://files.grouplens.org/datasets/movielens/ml-1m.zip and unzip into a folder ml-1m/
 
 run python3 movielens_data.py, which extracts the .dat files in ml-1m/ and generates ml1m_ratings.csv
 
@@ -55,7 +55,9 @@ by now, make sure you have ml-25m/ratings.csv and ml1m_ratings.csv
 
 ### Amazon review data
 
-download amazon data: TODO
+download amazon data from http://deepyeti.ucsd.edu/jianmo/amazon/categoryFilesSmall/all_csv_files.csv into a folder called amazon_data/
+
+run python3 movielens_data.py, which parses the .csv files in amazon_data/ and generates ml1m_ratings.csv
 
 ## Instructions
 
