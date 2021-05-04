@@ -67,12 +67,12 @@ MF baseline: ```python3 movielens.py --model_path MF --latent_dim 16 --dataset 2
 
 MixDim embeddings: ```python3 movielens.py --model_path mdMF --base_dim 16 --temperature 0.4 --k 8 --dataset 25m```
 
-ANT: ```python3 movielens.py --model_path sparseMF --latent_dim 16 --user_anchors 10 --item_anchors 15 --lda2 2e-6 --dataset 25m```
+ANT: ```python3 movielens.py --model_path sparseMF --latent_dim 16 --user_anchors 10 --item_anchors 15 --lda2s 2e-6 --lda2e 2e-6 --dataset 25m```
 
-NBANT: ```python3 movielens.py --model_path sparseMF --latent_dim 16 --lda1 0.1 --lda2 2e-6 --dataset 25m --dynamic```
+NBANT: ```python3 movielens.py --model_path sparseMF --latent_dim 16 --lda1 0.1 --lda2s 2e-6 --lda2e 2e-6 --dataset 25m --dynamic```
 
 ### Amazon review data
 
 MF: ```python3 amazon.py --model_path MF --latent_dim 16 --dataset amazon```
 
-ANT: ```python3 amazon.py --model_path sparseMF --latent_dim 16 --user_anchors 8 --item_anchors 8 --lda2 1e-7 --dataset amazon```
+ANT: ```python3 amazon.py --model_path sparseMF --latent_dim 16 --user_anchors 8 --item_anchors 8 --lda2s 1e-7 --lda2e 1e-7 --dataset amazon```
