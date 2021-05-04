@@ -73,4 +73,6 @@ NBANT: ```python3 movielens.py --model_path sparseMF --latent_dim 16 --lda1 0.01
 
 ### Amazon review data
 
-ANT: ```python3 amazon.py --model_path sparseMF --latent_dim 16 --user_anchors 20 --item_anchors 20 --lda2 0.0001 --dataset amazon```
+MF: ```python3 amazon.py --model_path MF --latent_dim 16 --dataset amazon```
+
+ANT: ```python3 amazon.py --model_path sparseMF --latent_dim 16 --user_anchors 8 --item_anchors 8 --lda2 1e-7 --dataset amazon```
