@@ -3,6 +3,7 @@ import gzip
 import numpy as np
 import math
 import os
+import random
 import pdb
 import sys
 import h5py
@@ -25,18 +26,18 @@ from torch_yogi import Yogi
 from torch_sgd import SGD
 
 FLAGS = flags.FLAGS
-flags.DEFINE_string('model_path', 'MF', 'model name')	# MF 	mdMF 	sparseMF 	NCF 	mdNCF 	sparseNCF
+flags.DEFINE_string('model_path', 'MF', 'model name')   # MF    mdMF    sparseMF    NCF     mdNCF   sparseNCF
 flags.DEFINE_integer('num_epoch', 50, '')
-flags.DEFINE_integer('batch_size', 128, '')
+flags.DEFINE_integer('batch_size', 10000, '')
 flags.DEFINE_string('optimizer', 'yogi', '')
-flags.DEFINE_float('lr', 0.01, '')
+flags.DEFINE_float('lr', 0.1, '')
 flags.DEFINE_integer('latent_dim', 16, '')
 flags.DEFINE_bool('load', False, '')
 flags.DEFINE_bool('test', False, '')
 flags.DEFINE_string('device', 'cuda', '')
 
 # scheduler
-flags.DEFINE_integer('step_size', 200000, '')
+flags.DEFINE_integer('step_size', 50000, '')
 flags.DEFINE_float('gamma', 0.5, '')
 
 flags.DEFINE_string('dataset', 'amazon', '')
@@ -82,8 +83,8 @@ def init_md(data_train, data_val, data_test, total_indices):
 	data_train_padded = np.concatenate([np.array(data_train), np.array(range(total_indices))], axis=0)
 	freq_counter = Counter(data_train_padded)
 	# for other in tqdm():
-	# 	if other not in data_train:
-	# 		freq_counter[other] = 0
+	#   if other not in data_train:
+	#       freq_counter[other] = 0
 	freq_counter = freq_counter.most_common()
 	freqs = torch.tensor(np.array([freq for (key, freq) in freq_counter]))
 	freq_index = {}
@@ -244,12 +245,12 @@ def dynamic_train(train_dataset, val_dataset, model):
 			nonsparse_params.append(param)
 	
 	params_opt = [{'params': nonsparse_params},
-			 	  {'params': sparse_params, 'regularization': (FLAGS.lda2s, 0.0)}]
+				  {'params': sparse_params, 'regularization': (FLAGS.lda2s, 0.0)}]
 
 	# optimizer = Adam(model.parameters(), lr=FLAGS.lr, amsgrad=True)
 	optimizer = Yogi(params_opt, lr=FLAGS.lr)
 	# optimizer = SGD(params_opt, lr=FLAGS.lr)
-	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=FLAGS.step_size, gamma=FLAGS.gamma)	# 100000, 0.5. s2: 200000, 0.5. s3: 500000, 0.5.
+	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=FLAGS.step_size, gamma=FLAGS.gamma)    # 100000, 0.5. s2: 200000, 0.5. s3: 500000, 0.5.
 	# scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=FLAGS.num_epoch)
 	if FLAGS.sparse:
 		initial_lda2 = FLAGS.lda2s
@@ -294,7 +295,7 @@ def dynamic_train(train_dataset, val_dataset, model):
 				print (torch.max(model_outputs), torch.max(ratings))
 				print (torch.mean(model_outputs), torch.mean(ratings))
 
-			# if iteration == 2000:	break
+			# if iteration == 2000: break
 
 		curr_val_loss = calculate_val_loss(model, val_dataloader)
 		curr_train_loss = total_train_loss/iteration
@@ -307,7 +308,7 @@ def dynamic_train(train_dataset, val_dataset, model):
 
 		update_anchors(model, total_losses)
 
-		if total_loss < best_val_loss:	# either take min total_losses or curr_val_loss
+		if total_loss < best_val_loss:  # either take min total_losses or curr_val_loss
 			best_val_loss = total_loss
 
 			checkpoint = {
@@ -324,7 +325,7 @@ def dynamic_train(train_dataset, val_dataset, model):
 def train(train_dataset, val_dataset, model):
 	train_dataloader = DataLoader(train_dataset, shuffle=True, num_workers=8, batch_size=FLAGS.batch_size)
 	val_dataloader = DataLoader(val_dataset, shuffle=False, num_workers=8, batch_size=FLAGS.batch_size)
-
+	'''
 	params = list(model.parameters())
 	if FLAGS.sparse:
 		params.remove(model.user_T)
@@ -338,11 +339,37 @@ def train(train_dataset, val_dataset, model):
 					  {'params': [model.embedding_user, model.embedding_item], 'regularization': (FLAGS.lda2s, 0.0)}]
 	else:
 		params_opt = params
+	'''
+
+	if FLAGS.sparse:
+		sparse_params = []
+		nonsparse_params = []
+		for name, param in model.named_parameters():
+			if 'user_T' in name or 'item_T' in name:
+				sparse_params.append(param)
+			else:
+				nonsparse_params.append(param)
+		
+		params_opt = [{'params': nonsparse_params},
+					  {'params': sparse_params, 'regularization': (FLAGS.lda2s, 0.0)}]
+	if FLAGS.sparse:
+		sparse_params = []
+		nonsparse_params = []
+		for name, param in model.named_parameters():
+			if 'embedding_user' in name or 'embedding_item' in name:
+				sparse_params.append(param)
+			else:
+				nonsparse_params.append(param)
+		
+		params_opt = [{'params': nonsparse_params},
+					  {'params': sparse_params, 'regularization': (FLAGS.lda2s, 0.0)}]
+	else:
+		params_opt = list(model.parameters())
 
 	# optimizer = Adam(model.parameters(), lr=FLAGS.lr, amsgrad=True)
 	optimizer = Yogi(params_opt, lr=FLAGS.lr)
 	# optimizer = SGD(params_opt, lr=FLAGS.lr)
-	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=FLAGS.step_size, gamma=FLAGS.gamma)	# 100000, 0.5. s2: 200000, 0.5. s3: 500000, 0.5.
+	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=FLAGS.step_size, gamma=FLAGS.gamma)    # 100000, 0.5. s2: 200000, 0.5. s3: 500000, 0.5.
 	# scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=FLAGS.num_epoch)
 	if FLAGS.sparse or FLAGS.full_reg:
 		initial_lda2 = FLAGS.lda2s
@@ -380,7 +407,7 @@ def train(train_dataset, val_dataset, model):
 			total_train_loss += train_loss.item()
 			curr_train_loss = total_train_loss/(iteration+1)
 
-			if iteration % 1000 == 0:
+			if iteration % 1 == 0:
 				print('curr lr:', curr_lr)
 				print("Training loss {}".format(curr_train_loss))
 				if FLAGS.sparse or FLAGS.full_reg:
@@ -542,7 +569,7 @@ def load_weights(model, movies_rev_map):
 		nnz = (sorted_fracs!=0).sum()
 		print (indices, nnz)
 		top_indices = [movies_rev_map[idx] for idx in indices[:nnz]]
-		top_movies = [movie_list[idx+1] for idx in top_indices]	# code subtracted 1 from movie indices at the start! so plus 1 back
+		top_movies = [movie_list[idx+1] for idx in top_indices] # code subtracted 1 from movie indices at the start! so plus 1 back
 		# print ('top_indices:', top_indices)
 		# print ('top_movies:', top_movies)
 
@@ -571,7 +598,7 @@ def compute_purity(genres):
 
 def main(argv):
 	cuda = torch.cuda.is_available()
-	FLAGS.device = torch.device("cuda" if cuda else "cpu")
+	FLAGS.device = torch.device("cuda" if cuda else "cpu") # 'cpu'
 
 	if FLAGS.dynamic and FLAGS.dataset == 'amazon':
 		FLAGS.model_path = 'saved_models_dynamic_amazon/' + FLAGS.model_path
@@ -609,20 +636,15 @@ def main(argv):
 			os.mkdir(FLAGS.model_path)
 
 	if FLAGS.dataset == 'amazon':
-		hf = h5py.File('saved_amazon_data.h5', 'r')
+		hf = h5py.File('amazon_data/saved_amazon_data_filtered5.h5', 'r') # _filtered5
 		print ('opened data')
-		users = np.array(hf.get('users'))
-		movies = np.array(hf.get('items'))
-		ratings = np.array(hf.get('ratings'))
+		num = 100000000000
+		users = np.array(hf.get('users')) #[:num]
+		movies = np.array(hf.get('items')) #[:num]
+		ratings = np.array(hf.get('ratings')) #[:num]
 		print ('loaded data')
 		hf.close()
 
-		# user_forward_map = pickle.load(open("user_forward_map.pkl", "rb"))
-		# user_rev_map = pickle.load(open("user_rev_map.pkl", "rb"))
-		# item_forward_map = pickle.load(open("item_forward_map.pkl", "rb"))
-		# item_rev_map = pickle.load(open("item_rev_map.pkl", "rb"))
-		# print ('loaded maps')
-		
 		RNG_SEED = 1446557
 		np.random.seed(RNG_SEED)
 		rng_state = np.random.get_state()
@@ -632,8 +654,8 @@ def main(argv):
 		np.random.set_state(rng_state)
 		np.random.shuffle(ratings)
 
-		FLAGS.n_users = 15167257 # len(user_forward_map)
-		FLAGS.m_items = 43531850 # len(item_forward_map)
+		FLAGS.n_users = np.max(users)+1 # 15167257 # len(user_forward_map)
+		FLAGS.m_items = np.max(movies)+1 # 43531850 # len(item_forward_map)
 
 	print ('Users:', users, ', shape =', users.shape, 'num =', FLAGS.n_users)
 	print ('Items:', movies, ', shape =', movies.shape, 'num =', FLAGS.m_items)
@@ -656,10 +678,6 @@ def main(argv):
 	ratings_test = ratings[int(len(users)*(train_prop+val_prop)):]
 
 	if FLAGS.md:
-		# users_train = [1,5,4,4,3,3,6,3,4,4,1]
-		# users_val = [1,4,2,3,5,6,0]
-		# users_test = [5,5,4,6,7,2]
-		# FLAGS.n_users = 8
 		
 		FLAGS.md_nums_user, FLAGS.md_dims_user, FLAGS.total_user_dim, \
 		users_train, users_val, users_test \
@@ -696,42 +714,69 @@ def main(argv):
 		train_prune(train_dataset, val_dataset, model)
 	else:
 		train(train_dataset, val_dataset, model)
-	
-def generate_grid():
-	user_as = [1,2,3,5,8,10,15,20,30,50,80,100,120,150,200,300,500,800,1000,1500,2000,3000,4000,5000,6000]	# 6040
-	item_as = [1,2,3,5,8,10,15,20,30,50,80,100,120,150,200,300,500,800,1000,1500,2000,3000,3500]			# 3952
-
-	user_as = [1,2,3,5,8,10,15,20,30,50,80,100,120,150,200,300,500,800,1000,1500,2000,3000,4000,5000,6000]	# 126000
-	item_as = [1,2,3,5,8,10,15,20,30,50,80,100,120,150,200,300,500,800,1000,1500,2000,3000,3500]			# 59000
-
-	for user_a in user_as:
-		for item_a in item_as:
-			gpu = 0
-			line = 'CUDA_VISIBLE_DEVICES=%d nohup python3 movielens.py --model_path sparseMF --latent_dim 16 --user_anchors %d --item_anchors %d --lda2 0.0001 --dataset 1m > res_full1m/sparse_ua%d_ia%d_0.0001.txt &' % (gpu,user_a,item_a,user_a,item_a)
-			print (line)
-
-if __name__ == "__main__":
-	app.run(main)
 
 
 def load_data():
-	path = 'amazon/all_csv_files.csv'
+	# aa = pickle.load(open("amazon_data/user_rev_map_filtered", "rb"))
+	# bb = pickle.load(open("amazon_data/item_rev_map_filtered", "rb"))
+	# pdb.set_trace()
 
-	RATINGS_CSV_FILE = 'amazon/all_csv_files.csv'
+	'''
+	hf = h5py.File('saved_amazon_data_filtered.h5', 'r')
+	print ('opened data')
+	num = 207851099
+	users = np.array(hf.get('users'))[:num]
+	movies = np.array(hf.get('items'))[:num]
+	ratings = np.array(hf.get('ratings'))[:num]
+	print ('loaded data')
+	hf.close()
+	pdb.set_trace()
+	'''
+
+	RATINGS_CSV_FILE = 'amazon_data/all_csv_files.csv'
 	ratings = pd.read_csv(RATINGS_CSV_FILE,
 						  sep=',',
 						  encoding='latin-1',
 						  usecols=[0,1,2,3],
 						  names=['userID', 'itemID', 'rating', 'time'],
 						  header=None)
-						  #nrows=1000000)
+						  # nrows=1000000)
 	user_id_header = 'userID'
 	item_id_header = 'itemID'
 	print (len(ratings), 'ratings loaded.')
 
 	RNG_SEED = 1446557
-	users = ratings[user_id_header].drop_duplicates()
-	items = ratings[item_id_header].drop_duplicates()
+	users = ratings[user_id_header]# .drop_duplicates()
+	items = ratings[item_id_header]# .drop_duplicates()
+
+	def filter_by_freq(df: pd.DataFrame, column: str, min_freq: int) -> pd.DataFrame:
+		"""Filters the DataFrame based on the value frequency in the specified column.
+
+		:param df: DataFrame to be filtered.
+		:param column: Column name that should be frequency filtered.
+		:param min_freq: Minimal value frequency for the row to be accepted.
+		:return: Frequency filtered DataFrame.
+		"""
+		# Frequencies of each value in the column.
+		freq = df[column].value_counts()
+		# Select frequent values. Value is in the index.
+		frequent_values = freq[freq >= min_freq].index
+		# Return only rows with value frequency above threshold.
+		return df[df[column].isin(frequent_values)]
+
+	prev_num = len(ratings)
+	print (prev_num)
+	while True:
+		ratings = filter_by_freq(ratings, user_id_header, 5)
+		ratings = filter_by_freq(ratings, item_id_header, 5)
+		new_num = len(ratings)
+		print (new_num)
+		if new_num == prev_num:
+			break
+		else:
+			prev_num = new_num
+
+	# pdb.set_trace()
 
 	def learn_map(raw_items):
 		forward_map = dict()
@@ -759,15 +804,23 @@ def load_data():
 	m_items = num_items
 	print ('Items:', mapped_items, ', shape =', mapped_items.shape, 'num =', m_items)
 	print ('Ratings:', ratings, ', shape =', ratings.shape)
+	# pdb.set_trace()
 
-	hf = h5py.File('saved_amazon_data.h5', 'w')
+	hf = h5py.File('amazon_data/saved_amazon_data_filtered5.h5', 'w')
 	hf.create_dataset('users', data=mapped_users)
 	hf.create_dataset('items', data=mapped_items)
 	hf.create_dataset('ratings', data=ratings)
 	hf.close()
 
-	pickle.dump(user_forward_map, open("user_forward_map.pkl", "wb"))
-	pickle.dump(user_rev_map, open("user_rev_map.pkl", "wb"))
-	pickle.dump(item_forward_map, open("item_forward_map.pkl", "wb"))
-	pickle.dump(item_rev_map, open("item_rev_map.pkl", "wb"))
+	pickle.dump(user_forward_map, open("amazon_data/user_forward_map_filtered5.pkl", "wb"))
+	pickle.dump(user_rev_map, open("amazon_data/user_rev_map_filtered5.pkl", "wb"))
+	pickle.dump(item_forward_map, open("amazon_data/item_forward_map_filtered5.pkl", "wb"))
+	pickle.dump(item_rev_map, open("amazon_data/item_rev_map_filtered5.pkl", "wb"))
 	pdb.set_trace()
+
+
+if __name__ == "__main__":
+	# load_data()
+	app.run(main)
+
+
