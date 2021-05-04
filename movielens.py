@@ -9,7 +9,7 @@ from tqdm import tqdm, trange
 from absl import app
 from absl import flags
 import pandas as pd
-
+# import matplotlib.pyplot as plt
 from model import *
 import torch
 import torch.nn as nn
@@ -891,7 +891,7 @@ def main(argv):
 
 	if FLAGS.dataset == '1m' or FLAGS.dataset == '25m':
 		if FLAGS.dataset == '1m':
-			RATINGS_CSV_FILE = 'ml1m_ratings.csv'
+			RATINGS_CSV_FILE = 'ml-1m/ml1m_ratings.csv'
 			ratings = pd.read_csv(RATINGS_CSV_FILE,
 								  sep='\t', 
 								  encoding='latin-1', 
