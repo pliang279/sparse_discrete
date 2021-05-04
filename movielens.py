@@ -4,7 +4,7 @@ import pdb
 import sys
 import h5py
 import pickle
-from collections import Counter
+from collections import Counter, deque
 from tqdm import tqdm, trange
 from absl import app
 from absl import flags
@@ -47,6 +47,8 @@ flags.DEFINE_float('lda2e', 1e-5, '')
 
 # for dynamic sparse embeddings
 flags.DEFINE_bool('dynamic', False, '')
+flags.DEFINE_bool('online', False, '')
+flags.DEFINE_integer('window', 1, '')
 flags.DEFINE_integer('init_anchors', 10, '')
 flags.DEFINE_integer('delta', 2, '')
 
@@ -318,23 +320,141 @@ def dynamic_train(train_dataset, val_dataset, model):
 
 		sys.stdout.flush()
 
+
+def dynamic_train_online(train_dataset, val_dataset, model):
+	train_dataloader = DataLoader(train_dataset, shuffle=True, num_workers=8, batch_size=FLAGS.batch_size)
+	val_dataloader = DataLoader(val_dataset, shuffle=False, num_workers=8, batch_size=FLAGS.batch_size)
+
+	sparse_params = []
+	nonsparse_params = []
+	for name, param in model.named_parameters():
+		if 'all_user_T' in name or 'all_item_T' in name:
+			sparse_params.append(param)
+		else:
+			nonsparse_params.append(param)
+	
+	params_opt = [{'params': nonsparse_params},
+			 	  {'params': sparse_params, 'regularization': (FLAGS.lda2s, 0.0)}]
+
+	# optimizer = Adam(model.parameters(), lr=FLAGS.lr, amsgrad=True)
+	optimizer = Yogi(params_opt, lr=FLAGS.lr)
+	# optimizer = SGD(params_opt, lr=FLAGS.lr)
+	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=FLAGS.step_size, gamma=FLAGS.gamma)	# 100000, 0.5. s2: 200000, 0.5. s3: 500000, 0.5.
+	# scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=FLAGS.num_epoch)
+	if FLAGS.sparse:
+		initial_lda2 = FLAGS.lda2s
+		final_lda2 = FLAGS.lda2e
+		step = (final_lda2-initial_lda2) / float(FLAGS.num_epoch)
+		lda2_schedule = [initial_lda2] * FLAGS.zerofor + [initial_lda2+i*step for i in range(FLAGS.num_epoch)]
+	else:
+		lda2_schedule = [0.0]*FLAGS.num_epoch
+
+	model.zero_grad()
+
+	total_losses = []
+	best_val_loss = math.inf
+
+	model.train()
+	num_updates = 0
+	start_index = 0
+	batches = deque()
+	# pdb.set_trace()
+
+	for iteration, batch in enumerate(tqdm(train_dataloader)):
+		if iteration >= start_index and iteration < start_index+FLAGS.window:
+			total_train_loss = 0
+			batches.append(batch)
+
+		if len(batches) == FLAGS.window:
+			for epoch in range(FLAGS.num_epoch):
+				for batch in batches:
+					users, movies, ratings = batch
+					users = users.to(FLAGS.device)
+					movies = movies.to(FLAGS.device)
+					ratings = ratings.to(FLAGS.device)
+					
+					model_outputs = model.forward(users, movies)
+					train_loss = torch.mean((model_outputs-ratings)**2)
+
+					train_loss.backward()
+					optimizer.step()
+					scheduler.step()
+					model.zero_grad()
+					num_updates += 1
+					curr_lr = scheduler.get_lr()[0]
+
+					total_train_loss += train_loss.item()
+					curr_train_loss = total_train_loss/(epoch+1)
+
+					if epoch % 10 == 0:
+						curr_lda2 = lda2_schedule[epoch]
+						print ('start_index %d, curr batch %d, epoch %d, l1 penalty: %s' % (start_index, iteration, epoch, str(curr_lda2)))
+						print('curr lr:', curr_lr)
+						print("Training loss {}".format(curr_train_loss))
+						print_nnz(model)
+						print (torch.min(model_outputs), torch.min(ratings))
+						print (torch.max(model_outputs), torch.max(ratings))
+						print (torch.mean(model_outputs), torch.mean(ratings))
+			
+			print ('START INDEX:', start_index)
+			# pdb.set_trace()
+			if start_index % int(len(train_dataloader)/FLAGS.num_epoch) == 0:
+				# pdb.set_trace()
+				curr_val_loss = calculate_val_loss(model, val_dataloader)
+				curr_train_loss = total_train_loss/epoch
+				print("Training loss {}".format(curr_train_loss))
+				print("Val loss {}".format(curr_val_loss))
+				print_nnz(model)
+
+				total_loss = compute_equation(curr_val_loss, model, curr_lda2)
+				total_losses.append(total_loss)
+
+				update_anchors(model, total_losses)
+
+				if total_loss < best_val_loss:	# either take min total_losses or curr_val_loss
+					best_val_loss = total_loss
+
+					checkpoint = {
+						'model': model.state_dict(),
+						'optimizer': optimizer.state_dict(),
+						'scheduler': scheduler.state_dict(),
+						'num_anchors': (model.user_anchors, model.item_anchors),
+						'curr_lda2': curr_lda2,
+					}
+					torch.save(checkpoint, FLAGS.model_path + 'checkpoint' + str(epoch) + '.pt')
+
+			batches.popleft()
+			start_index += 1
+
+		sys.stdout.flush()
+
+
 def train(train_dataset, val_dataset, model):
 	train_dataloader = DataLoader(train_dataset, shuffle=True, num_workers=8, batch_size=FLAGS.batch_size)
 	val_dataloader = DataLoader(val_dataset, shuffle=False, num_workers=8, batch_size=FLAGS.batch_size)
 
-	params = list(model.parameters())
 	if FLAGS.sparse:
-		params.remove(model.user_T)
-		params.remove(model.item_T)
-		params_opt = [{'params': params},
-					  {'params': [model.user_T, model.item_T], 'regularization': (FLAGS.lda2s, 0.0)}]
+		sparse_params = []
+		nonsparse_params = []
+		for name, param in model.named_parameters():
+			if 'user_T' in name or 'item_T' in name:
+				sparse_params.append(param)
+			else:
+				nonsparse_params.append(param)
+		params_opt = [{'params': nonsparse_params},
+				 	  {'params': sparse_params, 'regularization': (FLAGS.lda2s, 0.0)}]
 	elif FLAGS.full_reg:
-		params.remove(model.embedding_user)
-		params.remove(model.embedding_item)
-		params_opt = [{'params': params},
-					  {'params': [model.embedding_user, model.embedding_item], 'regularization': (FLAGS.lda2s, 0.0)}]
+		sparse_params = []
+		nonsparse_params = []
+		for name, param in model.named_parameters():
+			if 'embedding_user' in name or 'embedding_item' in name:
+				sparse_params.append(param)
+			else:
+				nonsparse_params.append(param)
+		params_opt = [{'params': nonsparse_params},
+				 	  {'params': sparse_params, 'regularization': (FLAGS.lda2s, 0.0)}]
 	else:
-		params_opt = params
+		params_opt = list(model.parameters())
 
 	# optimizer = Adam(model.parameters(), lr=FLAGS.lr, amsgrad=True)
 	optimizer = Yogi(params_opt, lr=FLAGS.lr)
@@ -539,7 +659,52 @@ def get_num_anchors(filename):
 	print ('best overall_loss:', overall_losses.index(min(overall_losses)), anchors[overall_losses.index(min(overall_losses))])
 	return anchor
 
-def test(test_dataset, model):
+def auc(users, movies, model, rakings_data, top_rakings_data):
+	topK = 50
+	user_anchors = 8 #user_anchors
+	item_anchors = 8 #item_anchors
+	user_embedding = torch.matmul(model.all_user_T[:,:user_anchors], model.all_user_A[:user_anchors])
+	all_precisions = []
+	all_recalls = []
+	for user in tqdm(users):
+		precisions = []
+		recalls = []
+		user = int(user)
+		rated_items = torch.tensor(list(rakings_data[user])).cuda()
+		all_item_embedding = torch.matmul(model.all_item_T[:,:item_anchors][rated_items], model.all_item_A[:item_anchors])
+		all_ratings = torch.einsum('i,mi->m', user_embedding[user], all_item_embedding)
+		sorted_ratings, indices = torch.sort(all_ratings, dim=-1, descending=True)
+		ks = [10,20,30,40,50,60,70,80,90,100,150,200,250,300,400,500,700,1000,1500,2000,2500,3000,4000,5000,6000,7000,8000,9000,10000]
+		for topK in ks:
+			retrieved_items = set(rated_items[indices][:topK].detach().cpu().numpy())
+			relevant_items = top_rakings_data[user]
+			true_positives = retrieved_items.intersection(relevant_items)
+			# false_positives = retrieved_items - true_positives
+			# false_negatives = relevant_items - true_positives
+			precision = len(true_positives)/len(retrieved_items)
+			recall = len(true_positives)/len(relevant_items)
+			precisions.append(precision)
+			recalls.append(recall)
+		all_precisions.append(precisions)
+		all_recalls.append(recalls)
+		# print (topK, precision, recall)
+	print ('precisions:', np.mean(np.array(all_precisions), axis=0))
+	print ('recalls:', np.mean(np.array(all_recalls), axis=0))
+	pdb.set_trace()
+
+
+def test(test_dataset, model, users, movies, ratings):
+	rakings_data = dict()
+	top_rakings_data = dict()
+	for (user, movie, rating) in tqdm(zip(users, movies, ratings)):
+		if rating >= 3.0:
+			if user not in top_rakings_data:
+				top_rakings_data[user] = set()
+			top_rakings_data[user].add(movie)
+		if user not in rakings_data:
+			rakings_data[user] = set()
+		rakings_data[user].add(movie)
+
 	test_dataloader = DataLoader(test_dataset, shuffle=False, num_workers=8, batch_size=FLAGS.batch_size)
 
 	all_checkpoints = []
@@ -559,8 +724,8 @@ def test(test_dataset, model):
 	if FLAGS.dynamic:
 		(user_anchors, item_anchors) = checkpoint['num_anchors']
 		curr_lda2 = checkpoint['curr_lda2']
-		model.user_anchors = user_anchors
-		model.item_anchors = item_anchors
+		model.user_anchors = 8 #user_anchors
+		model.item_anchors = 8 #item_anchors
 
 	if FLAGS.sparse:
 		print_nnz(model)
@@ -577,9 +742,14 @@ def test(test_dataset, model):
 	with torch.no_grad():
 		for iteration, batch in enumerate(tqdm(test_dataloader)):
 			users, movies, ratings = batch
+
+			auc(users, movies, model, rakings_data, top_rakings_data)
+
+
 			users = users.to(FLAGS.device)
 			movies = movies.to(FLAGS.device)
 			ratings = ratings.to(FLAGS.device)
+			# pdb.set_trace()
 			model_outputs = model.forward(users, movies)
 			loss = torch.mean((model_outputs-ratings)**2)
 			total_loss += loss.item()
@@ -592,7 +762,7 @@ def test(test_dataset, model):
 
 	return total_loss
 
-def load_weights(model, movies_rev_map):
+def load_weights(model, movie_data, movies_rev_map):
 	all_checkpoints = []
 	for file in os.listdir(FLAGS.model_path):
 		if file.endswith(".pt"):
@@ -619,10 +789,25 @@ def load_weights(model, movies_rev_map):
 	if FLAGS.dynamic:
 		(user_anchors, item_anchors) = checkpoint['num_anchors']
 		curr_lda2 = checkpoint['curr_lda2']
+		user_anchors = 8
+		item_anchors = 8
 		model.user_anchors = user_anchors
 		model.item_anchors = item_anchors
 		item_T = model.all_item_T[:,:item_anchors]
 		item_A = model.all_item_A[:item_anchors]
+
+	item_T = model.all_item_T[:,:item_anchors]
+	zero_rows = torch.sum(item_T, axis=1)
+	zero_rows = (zero_rows == 0).nonzero()
+	# pdb.set_trace()
+	item_counter = Counter(np.array(movie_data))
+	ones = [k for k in item_counter if item_counter[k]==1]
+	print ('normal ones:', len(ones)/len(item_counter))
+
+	freqs = np.array([item_counter[int(zr[0])] for zr in zero_rows])
+	cc = Counter(freqs)
+	print ('zero ones:', cc[1]/len(freqs))
+	pdb.set_trace()
 
 	for item_index in range(item_anchors):
 		curr_frac = item_T[:,item_index] / torch.sum(item_T, axis=1)
@@ -667,14 +852,10 @@ def main(argv):
 		FLAGS.model_path = 'saved_models_dynamic1m/' + FLAGS.model_path
 	elif FLAGS.dynamic and FLAGS.dataset == '25m':
 		FLAGS.model_path = 'saved_models_dynamic25m_final/' + FLAGS.model_path
-	elif FLAGS.dynamic and FLAGS.dataset == 'amazon':
-		FLAGS.model_path = 'saved_models_dynamic_amazon/' + FLAGS.model_path
 	elif FLAGS.dataset == '1m':
 		FLAGS.model_path = 'saved_models_1m/' + FLAGS.model_path
 	elif FLAGS.dataset == '25m':
-		FLAGS.model_path = 'saved_models_25m/' + FLAGS.model_path
-	elif FLAGS.dataset == 'amazon':
-		FLAGS.model_path = 'saved_models_amazon/' + FLAGS.model_path
+		FLAGS.model_path = 'saved_models_25m_final/' + FLAGS.model_path
 	else:
 		print ('wrong flags')
 		assert False
@@ -695,6 +876,8 @@ def main(argv):
 	FLAGS.model_path += '_dim%d_split0.9' %(FLAGS.latent_dim)
 	if FLAGS.prune:
 		FLAGS.model_path += '_prune%s' %(str(FLAGS.prune_lda))
+	if FLAGS.online:
+		FLAGS.model_path += '_online%d' %(FLAGS.window)
 	FLAGS.model_path += '/'
 
 	print (FLAGS.model_path)
@@ -746,21 +929,6 @@ def main(argv):
 		FLAGS.m_items = num_movies
 		ratings = shuffled_ratings['rating'].values
 
-	elif FLAGS.dataset == 'amazon':
-		hf = h5py.File('saved_amazon_data.h5', 'r')
-		users = np.array(hf.get('users'))
-		movies = np.array(hf.get('items'))
-		ratings = np.array(hf.get('ratings'))
-		hf.close()
-
-		user_forward_map = pickle.load(open("user_forward_map.pkl", "rb"))
-		user_rev_map = pickle.load(open("user_rev_map.pkl", "rb"))
-		item_forward_map = pickle.load(open("item_forward_map.pkl", "rb"))
-		item_rev_map = pickle.load(open("item_rev_map.pkl", "rb"))
-
-		FLAGS.n_users = len(user_forward_map)
-		FLAGS.m_items = len(item_forward_map)
-
 	print ('Movies:', movies, ', shape =', movies.shape, 'num =', FLAGS.m_items)
 	print ('Ratings:', ratings, ', shape =', ratings.shape)
 
@@ -780,11 +948,9 @@ def main(argv):
 	movies_test = movies[int(len(users)*(train_prop+val_prop)):]
 	ratings_test = ratings[int(len(users)*(train_prop+val_prop)):]
 
+	# pdb.set_trace()
+
 	if FLAGS.md:
-		# users_train = [1,5,4,4,3,3,6,3,4,4,1]
-		# users_val = [1,4,2,3,5,6,0]
-		# users_test = [5,5,4,6,7,2]
-		# FLAGS.n_users = 8
 		
 		FLAGS.md_nums_user, FLAGS.md_dims_user, FLAGS.total_user_dim, \
 		users_train, users_val, users_test \
@@ -812,10 +978,12 @@ def main(argv):
 	model.to(FLAGS.device)
 
 	if FLAGS.load:
-		load_weights(model, movies_rev_map)
+		load_weights(model, movies, movies_rev_map)
 	elif FLAGS.test:
-		test(val_dataset, model)
-	elif FLAGS.dynamic:
+		test(val_dataset, model, users, movies, ratings)
+	elif FLAGS.dynamic and FLAGS.online:
+		dynamic_train_online(train_dataset, val_dataset, model)
+	elif FLAGS.dynamic and not FLAGS.online:
 		dynamic_train(train_dataset, val_dataset, model)
 	elif FLAGS.prune:
 		train_prune(train_dataset, val_dataset, model)
