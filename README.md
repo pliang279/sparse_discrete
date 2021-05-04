@@ -57,7 +57,7 @@ by now, make sure you have the files ```ml-25m/ratings.csv``` and ```ml-1m/ml1m_
 
 download amazon data from http://deepyeti.ucsd.edu/jianmo/amazon/categoryFilesSmall/all_csv_files.csv into a folder called amazon_data/
 
-run ```python3 movielens_data.py```, which parses the .csv files in amazon_data/ and generates ml1m_ratings.csv
+run ```python3 movielens_data.py```, which parses the .csv files in amazon_data/ and generates the file ```amazon_data/saved_amazon_data_filtered5.h5```
 
 ## Instructions
 
